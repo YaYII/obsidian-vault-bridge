@@ -164,6 +164,37 @@ gh api "repos/YaYII/obsidian-vault-bridge/attestations/sha256:$D"
 The build is also reproducible: it embeds no timestamp or randomness, so rebuilding
 from the same tag yields a byte-identical `main.js`.
 
+<a id="sponsor"></a>
+
+## Sponsor / 赞助
+
+**English** — Vault Bridge is a spare-time project. If it saves you some hassle moving
+files between your computer and phone, you can buy me a cup of tea.
+**Entirely optional — every feature stays free.**
+
+**中文** —— Vault Bridge 是业余时间的作品。如果它让你在手机和电脑之间传文件省了事，
+欢迎扫码请我喝杯茶 —— **完全自愿，不影响任何功能**。
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/sponsor/wechat-pay.jpg" alt="WeChat Pay QR code / 微信支付收款码" width="260" />
+      <br /><b>WeChat Pay / 微信支付</b>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/sponsor/alipay.jpg" alt="Alipay QR code / 支付宝收款码" width="260" />
+      <br /><b>Alipay / 支付宝</b>
+    </td>
+  </tr>
+</table>
+
+Three things that help just as much as money / 不花钱也能帮上忙：
+
+1. Star this repo / 给仓库点个 Star；
+2. Vote for it in the [community directory](https://community.obsidian.md/plugins) once it is listed /
+   等它进入社区目录后点个赞；
+3. Report what broke / 把遇到的问题反馈过来。
+
 ## License
 
 [MIT](LICENSE)
