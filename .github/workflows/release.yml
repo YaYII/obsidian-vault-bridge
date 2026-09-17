@@ -9,7 +9,9 @@ on:
       - '[0-9]*'
 
 permissions:
-  contents: write
+  contents: write        # 创建 Release 并上传资产
+  id-token: write        # 生成来源证明需要 OIDC token
+  attestations: write    # 允许写入构建来源证明
 
 jobs:
   release:
@@ -54,6 +56,19 @@ jobs:
 
       - name: 产物级验证（真实加载 main.js 并打 HTTP 请求）
         run: npm run verify
+
+      # 为发布资产生成构建来源证明：任何人都可以用
+      #   gh attestation verify main.js --repo YaYII/obsidian-vault-bridge
+      # 核验这些文件确实由本仓库的这次 workflow 构建，而非事后被替换。
+      # 顺带一提，本项目的构建是可复现的（无时间戳/随机量，连续构建哈希一致），
+      # 因此用户不仅能验证来源，还能自行重建出逐字节相同的文件。
+      - name: 生成构建来源证明
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
 
       - name: 创建 Release 并上传插件资产
         uses: softprops/action-gh-release@v2

@@ -145,6 +145,18 @@ tests/                   vitest: attack surface, auth, routing, real-port integr
 tools/                   installer, tunnel, bundle verification, Obsidian host double
 ```
 
+## Verifying a release
+
+Release assets ship with a GitHub build provenance attestation, so you can confirm
+that `main.js` was built from this repository by its release workflow:
+
+```bash
+gh attestation verify main.js --repo YaYII/obsidian-vault-bridge
+```
+
+The build is also reproducible: it embeds no timestamp or randomness, so rebuilding
+from the same tag yields a byte-identical `main.js`.
+
 ## License
 
 [MIT](LICENSE)
