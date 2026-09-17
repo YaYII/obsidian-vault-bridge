@@ -7,6 +7,28 @@
 
 一份代码两端跑：桌面端启动 HTTP 服务，iOS/Android 端只做客户端，角色由运行平台自动判定。
 
+<a id="sponsor"></a>
+
+## 赞助 / Sponsor
+
+Vault Bridge 是业余时间的作品。如果它让你在手机和电脑之间传文件省了事，
+欢迎扫码请我喝杯茶 —— **完全自愿，不影响任何功能**。
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="sponsor/wechat-pay.jpg" alt="微信支付收款码" width="260" />
+      <br /><b>微信支付</b>
+    </td>
+    <td align="center" width="50%">
+      <img src="sponsor/alipay.jpg" alt="支付宝收款码" width="260" />
+      <br /><b>支付宝</b>
+    </td>
+  </tr>
+</table>
+
+不花钱也能帮上忙：给仓库点个 Star、等它进入社区插件目录后点个赞、或把遇到的问题反馈过来。
+
 ---
 
 ## 它能解决什么

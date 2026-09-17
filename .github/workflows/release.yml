@@ -82,19 +82,16 @@ jobs:
             manifest.json
             styles.css
 
-      # 在 Release 说明后附上赞助二维码。
+      # 把赞助二维码放在 Release 说明【最前面】——这是访问者第一眼看到的位置。
       # 为什么不用 action 的 append_body：实测它与 generate_release_notes 同时使用会【被静默忽略】，
-      # 生成的说明里只剩一行 Full Changelog。显式读写 body 是确定的：读回 → 拼接 → 写回。
-      - name: 在 Release 说明后附上赞助二维码
+      # 生成的说明里只剩一行 Full Changelog。显式读写 body 是确定的：读回 → 前置 → 写回。
+      - name: 在 Release 说明前插入赞助二维码
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-          gh release view "$GITHUB_REF_NAME" --json body -q .body > /tmp/release-body.md
-          cat >> /tmp/release-body.md <<'SPONSOR'
-
-          ---
-
+          gh release view "$GITHUB_REF_NAME" --json body -q .body > /tmp/generated-body.md
+          cat > /tmp/release-body.md <<'SPONSOR'
           ## 赞助 / Sponsor
 
           Vault Bridge 是业余时间的作品。如果它让你在手机和电脑之间传文件省了事，
@@ -115,4 +112,7 @@ jobs:
 
           不花钱也能帮上忙：给仓库点个 Star、在社区插件目录里点个赞、或把遇到的问题反馈过来。
           SPONSOR
+          # GitHub 自动生成的变更说明接在赞助段落之后
+          printf '\n---\n\n' >> /tmp/release-body.md
+          cat /tmp/generated-body.md >> /tmp/release-body.md
           gh release edit "$GITHUB_REF_NAME" --notes-file /tmp/release-body.md
