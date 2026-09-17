@@ -183,7 +183,15 @@ export default class VaultBridgePlugin extends Plugin {
   resolveConnection(overrideToken = ''): { url: string; token: string } {
     const url = this.settings.clientServerUrl;
     const profile = findProfile(this.settings.serverProfiles, url);
-    return { url, token: overrideToken || (profile ? profile.token : '') || this.settings.token };
+    return {
+      url,
+      token:
+        overrideToken ||
+        (profile ? profile.token : '') ||
+        this.settings.clientToken ||
+        // 兜底：旧版本把电脑令牌存在顶层 token 里（vault 连同 data.json 一起同步的场景）
+        this.settings.token,
+    };
   }
 
   /** 构造访问电脑的客户端；地址或令牌缺失时返回 null */

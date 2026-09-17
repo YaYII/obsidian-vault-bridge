@@ -322,6 +322,11 @@ async function main() {
     const items = definitions.flatMap((group) => group.items || []);
     check('设置项数量合理', items.length >= 10, '实际：' + items.length + ' 项');
     check(
+      '设置页有「访问令牌」输入项（填令牌的地方）',
+      items.some((item) => item.name === '访问令牌'),
+      '设置项：' + items.map((item) => item.name).join(' / ')
+    );
+    check(
       '每个设置项都有名称（设置搜索依赖它）',
       items.every((item) => typeof item.name === 'string' && item.name.length > 0)
     );

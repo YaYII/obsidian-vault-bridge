@@ -37,6 +37,14 @@ export interface VaultBridgeSettings {
   /** 手机端保存的电脑地址（在手机上填写，电脑端不用） */
   clientServerUrl: string;
   /**
+   * 手机端保存的【电脑的】访问令牌（在手机上填写，电脑端不用）。
+   *
+   * 与顶层 token 的区别：顶层 token 是【本机服务端】的令牌，这一个是要连的那台电脑的令牌。
+   * 历史档案里也有令牌，但那是「某条地址配某个令牌」；这里存的是当前正在用的那个，
+   * 让设置页能直接看见并编辑，而不是只存在于连接档案或面板的临时状态里。
+   */
+  clientToken: string;
+  /**
    * 连接档案：曾经连通过的「地址 + 令牌」，按最近使用排序。
    *
    * 存在的理由：手机要连的地址不止一个——在家是局域网 IP，出门是公网隧道域名，
@@ -62,6 +70,7 @@ export const DEFAULT_SETTINGS: VaultBridgeSettings = {
   excludeDirs: DEFAULT_EXCLUDED_DIRS.join(','),
   keepAccessLog: true,
   clientServerUrl: '',
+  clientToken: '',
   clientDownloadDir: 'VaultBridge下载',
   clientUploadDir: '',
   serverProfiles: [],
@@ -94,6 +103,7 @@ export function normalizeSettings(raw: Partial<VaultBridgeSettings> | null | und
     merged.clientDownloadDir = DEFAULT_SETTINGS.clientDownloadDir;
   if (typeof merged.clientUploadDir !== 'string') merged.clientUploadDir = DEFAULT_SETTINGS.clientUploadDir;
   if (typeof merged.clientServerUrl !== 'string') merged.clientServerUrl = '';
+  if (typeof merged.clientToken !== 'string') merged.clientToken = '';
 
   // 清洗连接档案：丢掉结构损坏的条目，补齐缺失字段，并按上限裁剪。
   // 这些数据可能来自旧版本或被手工编辑过的 data.json，不能让它们把设置页搞崩。
@@ -298,6 +308,8 @@ export class VaultBridgeSettingTab extends PluginSettingTab {
                     const pastedToken = extractTokenFromUrl(value);
                     this.plugin.settings.clientServerUrl = normalizeBaseUrl(value);
                     if (pastedToken) {
+                      // 令牌同时写进「访问令牌」字段，设置页一眼能看到并用它做检查/同步
+                      this.plugin.settings.clientToken = pastedToken;
                       this.plugin.settings.serverProfiles = rememberProfile(
                         this.plugin.settings.serverProfiles,
                         this.plugin.settings.clientServerUrl,
@@ -307,6 +319,23 @@ export class VaultBridgeSettingTab extends PluginSettingTab {
                     await this.plugin.saveSettings();
                   })
               );
+            },
+          },
+          {
+            name: '访问令牌',
+            desc: '电脑端设置页里那一串 32 位令牌。也可把带 token 的链接粘到上面的「电脑地址」，会自动填进来',
+            render: (setting) => {
+              setting.addText((text) => {
+                text.inputEl.type = 'password';
+                text
+                  .setPlaceholder('电脑的访问令牌')
+                  .setValue(this.plugin.settings.clientToken)
+                  .onChange(async (value) => {
+                    const pastedToken = extractTokenFromUrl(value);
+                    this.plugin.settings.clientToken = pastedToken || value.trim();
+                    await this.plugin.saveSettings();
+                  });
+              });
             },
           },
           {

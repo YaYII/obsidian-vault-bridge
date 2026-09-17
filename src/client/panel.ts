@@ -122,6 +122,8 @@ export class BridgePanel extends ItemView {
 
       // 连接成功即写入历史：地址与令牌一起记下，换网络时直接选，不必手输
       this.plugin.settings.clientServerUrl = client.endpoint;
+      // 当前在用的令牌也存一份：设置页的「访问令牌」与之一致，下次不必重填
+      this.plugin.settings.clientToken = this.currentConnection().token;
       this.plugin.settings.serverProfiles = rememberProfile(
         this.plugin.settings.serverProfiles,
         client.endpoint,
