@@ -1,6 +1,6 @@
 import esbuild from 'esbuild';
 import process from 'node:process';
-import builtins from 'builtin-modules';
+import { builtinModules } from 'node:module';
 
 const banner = `/*
 Vault Bridge —— Obsidian 插件（电脑端服务 + 手机端客户端，同一份代码）
@@ -34,7 +34,10 @@ const ctx = await esbuild.context({
     '@lezer/common',
     '@lezer/highlight',
     '@lezer/lr',
-    ...builtins,
+    // Node 内置模块用运行时自带的清单（node:module 的 builtinModules），
+    // 不再依赖 builtin-modules 这个第三方包；同时排除带 node: 前缀的写法。
+    ...builtinModules,
+    ...builtinModules.map((name) => 'node:' + name),
   ],
   format: 'cjs',
   target: 'es2018',
