@@ -9,6 +9,9 @@
  * 用法：node tools/verify-bundle.mjs
  */
 
+// 必须最先执行：Node 18 的脚本文件里没有全局 crypto，产物生成令牌时会用到
+import './node-webcrypto.mjs';
+
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
