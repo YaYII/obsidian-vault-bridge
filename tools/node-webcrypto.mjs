@@ -12,6 +12,12 @@
  * 只影响这些开发脚本；Obsidian 的 Electron 与 WebView 始终自带 window.crypto。
  */
 
+// 插件代码按 Obsidian 规范使用 window；脚本环境没有它，这里一并补上。
+const globalScope = globalThis;
+if (typeof globalScope.window === 'undefined') {
+  Object.defineProperty(globalScope, 'window', { value: globalThis, configurable: true, writable: true });
+}
+
 const existing = globalThis.crypto;
 
 if (!existing || typeof existing.getRandomValues !== 'function') {

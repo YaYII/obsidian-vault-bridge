@@ -4,9 +4,10 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
+import type { Vault as ObsidianVault } from 'obsidian';
 import { handleRequest } from '../src/server/router';
 import { AuthGuard } from '../src/server/auth';
-import { Vault } from './mocks/obsidian';
+import { TFile, Vault } from './mocks/obsidian';
 
 const TOKEN = 'test-token-abcdefghijklmnop';
 const MEGABYTE = 1024 * 1024;
@@ -21,13 +22,17 @@ function buildContext(options: { allowUpload?: boolean; maxUploadBytes?: number 
     maxUploadBytes: options.maxUploadBytes || 8 * MEGABYTE,
   };
   const ctx = {
-    vault,
+    // 测试替身只实现插件真正用到的 Vault 语义，这里断言成宿主类型：
+    // import type 在转译后会被移除，因此 vitest 拿到的是替身，tsc 校验的是真实契约。
+    vault: vault as unknown as ObsidianVault,
     version: '1.0.0-test',
     getSettings: () => settings,
     guard: new AuthGuard(() => settings.token),
     logAccess: (entry: { action: string; status: number; target: string }) => {
       logs.push({ action: entry.action, status: entry.status, target: entry.target });
     },
+    // 安装包打包依赖插件自身目录；单测里不需要，返回空串即可
+    getPluginDir: () => '',
   };
   return { vault, ctx, logs, settings };
 }
@@ -225,7 +230,9 @@ describe('上传', () => {
     const result = JSON.parse(bodyText(response));
     expect(result.action).toBe('updated');
     const file = vault.getAbstractFileByPath('笔记.md');
-    expect(new TextDecoder().decode(file.content)).toBe('新内容');
+    // 替身只保证 TFile 才有 content，这里显式收窄
+    expect(file).toBeInstanceOf(TFile);
+    expect(new TextDecoder().decode((file as TFile).content)).toBe('新内容');
   });
 
   it('关闭上传开关后返回 403', async () => {

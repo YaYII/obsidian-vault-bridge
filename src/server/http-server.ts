@@ -9,8 +9,18 @@
  * 标记为 external，产物里保留为原样的 require()，iOS 加载 main.js 时不会触发。
  */
 
-import type { IncomingMessage, Server, ServerResponse } from 'http';
 import type { Vault } from 'obsidian';
+
+/**
+ * Node HTTP 对象的结构化类型。
+ *
+ * 刻意不写 `import ... from 'http'`——静态 import 会被判定为引入了 Node 内置模块
+ * （移动端并不存在），而本文件只在桌面端执行。改用类型查询表达依赖：
+ * 它只存在于类型层，编译后完全消失，运行时零影响。
+ */
+type ServerLike = import('http').Server;
+type RequestLike = import('http').IncomingMessage;
+type ResponseLike = import('http').ServerResponse;
 import type { AccessLogEntry } from '../shared/types';
 import { AuthGuard } from './auth';
 import { handleRequest, type BridgeRequest, type BridgeResponse, type BridgeRuntimeSettings } from './router';
@@ -38,6 +48,23 @@ function nodeRequire<T>(id: string): T {
   return loader(id);
 }
 
+/**
+ * 按总长度一次性分配后拷贝。
+ * 不用 Node 的 Buffer：那是仅在桌面端存在的全局，
+ * 用标准 Uint8Array 可以让这份代码不依赖任何 Node 全局。
+ */
+function concatBytes(chunks: Uint8Array[]): Uint8Array {
+  let total = 0;
+  for (const chunk of chunks) total += chunk.length;
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
+}
+
 /** 把 IPv6 映射地址还原成易读的 IPv4 */
 function humanizeIp(raw: string | undefined): string {
   if (!raw) return 'unknown';
@@ -46,10 +73,10 @@ function humanizeIp(raw: string | undefined): string {
 }
 
 export class BridgeServer {
-  private server: Server | null = null;
+  private server: ServerLike | null = null;
   private boundPort = 0;
   private readonly guard: AuthGuard;
-  private sweepTimer: ReturnType<typeof setInterval> | null = null;
+  private sweepTimer: number | null = null;
 
   constructor(private readonly host: ServerHost) {
     this.guard = new AuthGuard(() => this.host.getRuntimeSettings().token);
@@ -118,16 +145,21 @@ export class BridgeServer {
     this.boundPort = address && typeof address === 'object' ? address.port : port;
 
     // 定期清理限流表，避免长期运行内存增长
-    this.sweepTimer = setInterval(() => this.guard.sweep(), 60_000);
-    if (typeof this.sweepTimer === 'object' && this.sweepTimer && 'unref' in this.sweepTimer) {
-      (this.sweepTimer as unknown as { unref: () => void }).unref();
+    // 用 window.setInterval 而不是裸 setInterval：Obsidian 建议如此以兼容弹出窗口。
+    this.sweepTimer = window.setInterval(() => this.guard.sweep(), 60_000);
+
+    // Office 场景下定时器不影响进程退出；但在纯 Node 环境（产物验证脚本）里
+    // 若定时器未被清理会挂住进程，因此能 unref 就 unref。
+    const timer = this.sweepTimer as unknown as { unref?: () => void };
+    if (timer && typeof timer.unref === 'function') {
+      timer.unref();
     }
   }
 
   /** 停止监听并断开所有连接 */
   async stop(): Promise<void> {
     if (this.sweepTimer) {
-      clearInterval(this.sweepTimer);
+      window.clearInterval(this.sweepTimer);
       this.sweepTimer = null;
     }
     const server = this.server;
@@ -143,7 +175,7 @@ export class BridgeServer {
       ) {
         (server as unknown as { closeAllConnections: () => void }).closeAllConnections();
       }
-      setTimeout(resolve, 2000);
+      window.setTimeout(resolve, 2000);
     });
   }
 
@@ -153,7 +185,7 @@ export class BridgeServer {
   }
 
   /** 把 Node 请求转成路由层输入，再写回响应 */
-  private async handleNodeRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  private async handleNodeRequest(req: RequestLike, res: ResponseLike): Promise<void> {
     // 浏览器预检：允许手机浏览器与第三方客户端跨域调用
     if (req.method === 'OPTIONS') {
       res.statusCode = 204;
@@ -191,7 +223,7 @@ export class BridgeServer {
       method: (req.method || 'GET').toUpperCase(),
       pathname,
       query: url.searchParams,
-      headers: req.headers as Record<string, string | string[] | undefined>,
+      headers: req.headers,
       body: bodyResult.body,
       ip: humanizeIp(req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : undefined),
     };
@@ -216,18 +248,18 @@ export class BridgeServer {
     if (typeof response.body === 'string') {
       res.end(response.body);
     } else {
-      res.end(Buffer.from(response.body));
+      res.end(response.body);
     }
   }
 
   /** 读取请求体，超过上限立刻停止累积并丢弃后续数据 */
-  private readBody(req: IncomingMessage, maxBytes: number): Promise<{ body: Uint8Array; tooLarge: boolean }> {
+  private readBody(req: RequestLike, maxBytes: number): Promise<{ body: Uint8Array; tooLarge: boolean }> {
     return new Promise((resolve) => {
-      const chunks: Buffer[] = [];
+      const chunks: Uint8Array[] = [];
       let total = 0;
       let tooLarge = false;
 
-      req.on('data', (chunk: Buffer) => {
+      req.on('data', (chunk: Uint8Array) => {
         if (tooLarge) return;
         total += chunk.length;
         if (total > maxBytes) {
@@ -242,7 +274,7 @@ export class BridgeServer {
           resolve({ body: new Uint8Array(0), tooLarge: true });
           return;
         }
-        resolve({ body: Buffer.concat(chunks), tooLarge: false });
+        resolve({ body: concatBytes(chunks), tooLarge: false });
       });
       req.on('error', () => {
         resolve({ body: new Uint8Array(0), tooLarge: false });
@@ -250,7 +282,7 @@ export class BridgeServer {
     });
   }
 
-  private applyCors(res: ServerResponse): void {
+  private applyCors(res: ResponseLike): void {
     res.setHeader('access-control-allow-origin', '*');
     res.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
     res.setHeader('access-control-allow-headers', 'authorization, content-type');

@@ -47,5 +47,10 @@ export const ROUTES = {
 /** 安装包里需要打包的插件文件，顺序即解压后的呈现顺序 */
 export const BUNDLE_FILES = ['manifest.json', 'main.js', 'styles.css'] as const;
 
-/** 默认排除同步的目录（客户端列表时直接过滤，减少噪音） */
-export const DEFAULT_EXCLUDED_DIRS = ['.obsidian', '.trash', '.git'];
+/**
+ * 客户端列目录时默认过滤掉的噪音目录。
+ *
+ * 注意这里【不含配置目录】：配置目录是由安全层无条件屏蔽的（见 shared/path.ts），
+ * 不属于「用户可自行取舍的显示偏好」，因此不放进用户可编辑的排除列表。
+ */
+export const DEFAULT_EXCLUDED_DIRS = ['.trash', '.git'];

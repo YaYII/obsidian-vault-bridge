@@ -20,6 +20,12 @@ export class BridgeClientError extends Error {
   }
 }
 
+/** 服务端错误负载的类型守卫，避免把 JSON.parse 的结果当作 any 使用 */
+function isErrorPayload(value: unknown): value is { message: string } {
+  if (typeof value !== 'object' || value === null) return false;
+  return typeof (value as { message?: unknown }).message === 'string';
+}
+
 /** 把用户输入的地址整理成规范形式 */
 export function normalizeBaseUrl(raw: string): string {
   let value = (raw || '').trim();
@@ -140,8 +146,8 @@ export class BridgeClient {
     if (response.status >= 400) {
       let detail = 'HTTP ' + response.status;
       try {
-        const parsed = JSON.parse(response.text);
-        if (parsed && parsed.message) detail = parsed.message;
+        const parsed: unknown = JSON.parse(response.text);
+        if (isErrorPayload(parsed)) detail = parsed.message;
       } catch {
         /* 响应不是 JSON，保留状态码 */
       }

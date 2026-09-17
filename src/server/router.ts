@@ -175,6 +175,14 @@ async function route(
 ): Promise<BridgeResponse> {
   const { pathname, method } = req;
 
+  /**
+   * 统一的路径解析入口。
+   * 把 vault 的真实配置目录带进安全校验——配置目录可被用户改名，
+   * 靠固定字面量屏蔽会在自定义配置下失效。
+   */
+  const resolveRequestPath = (raw: string): string =>
+    normalizeVaultPath(raw, { configDir: ctx.vault.configDir });
+
   // 健康检查放在鉴权之前：手机端要能判断「地址通不通」与「令牌对不对」是两类问题
   if (pathname === ROUTES.health) {
     const payload: HealthResponse = { ok: true, app: 'Vault Bridge', version: ctx.version, time: Date.now() };
@@ -223,21 +231,21 @@ async function route(
     }
 
     case ROUTES.list: {
-      const dir = normalizeVaultPath(req.query.get('path') || '');
+      const dir = resolveRequestPath(req.query.get('path') || '');
       const payload: ListResponse = listFolder(ctx.vault, dir, settings.excludedDirs);
       setAction(`列出目录 ${dir || '/'}`);
       return jsonResponse(200, payload);
     }
 
     case ROUTES.stat: {
-      const target = normalizeVaultPath(req.query.get('path') || '');
+      const target = resolveRequestPath(req.query.get('path') || '');
       const payload = statFile(ctx.vault, target);
       setAction(`查看信息 ${target}`);
       return jsonResponse(200, payload);
     }
 
     case ROUTES.download: {
-      const target = normalizeVaultPath(req.query.get('path') || '');
+      const target = resolveRequestPath(req.query.get('path') || '');
       const { data, name } = await readFileBinary(ctx.vault, target);
       setAction(`下载 ${target}`);
       return {
@@ -258,7 +266,7 @@ async function route(
         setAction('上传被拒绝（已关闭上传）');
         return errorResponse(403, 'upload_disabled', '电脑端已关闭上传功能');
       }
-      const target = normalizeVaultPath(req.query.get('path') || '');
+      const target = resolveRequestPath(req.query.get('path') || '');
       if (!target) return errorResponse(400, 'bad_request', '必须指定上传目标路径');
       if (req.body.byteLength === 0) return errorResponse(400, 'bad_request', '请求体为空');
       if (req.body.byteLength > settings.maxUploadBytes) {
@@ -307,7 +315,7 @@ async function route(
       if (!settings.allowUpload) {
         return errorResponse(403, 'upload_disabled', '电脑端已关闭写操作');
       }
-      const target = normalizeVaultPath(req.query.get('path') || '');
+      const target = resolveRequestPath(req.query.get('path') || '');
       if (!target) return errorResponse(400, 'bad_request', '必须指定目录路径');
       await ensureFolder(ctx.vault, target);
       setAction(`新建目录 ${target}`);

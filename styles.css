@@ -278,3 +278,14 @@
 .is-mobile .vault-bridge-row {
   min-height: 56px;
 }
+
+/* 可点击复制的地址文本：原先是内联 style，改为 CSS 类以便主题统一控制 */
+.vault-bridge-copyable {
+  cursor: pointer;
+}
+
+/* 令牌输入框：需要足够宽度完整显示 32 位令牌 */
+.vault-bridge-token-input {
+  width: 320px;
+  max-width: 100%;
+}

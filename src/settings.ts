@@ -1,6 +1,6 @@
 /** 插件设置的数据模型与电脑端设置界面。 */
 
-import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
+import { App, Notice, PluginSettingTab, Setting, type SettingDefinitionItem } from 'obsidian';
 import { DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_PORT, DEFAULT_EXCLUDED_DIRS } from './shared/protocol';
 import { generateToken } from './shared/token';
 import { formatTime } from './shared/format';
@@ -77,7 +77,17 @@ export function normalizeSettings(raw: Partial<VaultBridgeSettings> | null | und
   return merged;
 }
 
-/** 电脑端设置界面 */
+/**
+ * 电脑端设置界面。
+ *
+ * 采用 Obsidian 1.13.0 引入的声明式设置 API：每个条目的 name/desc 会被框架用于
+ * 渲染与【设置搜索】，这样用户按「令牌」「端口」等关键词就能直接搜到本插件的设置项。
+ *
+ * 条目内部仍用 render 回调做命令式渲染——因为这一页不只有静态表单：
+ * 运行状态随服务起停变化、访问地址要按网卡枚举、令牌需要一键复制、
+ * 底部还有一张访问日志表格。声明式的 control 结构表达不了这些，
+ * 而 render 恰好是官方为这类情况留的口子。
+ */
 export class VaultBridgeSettingTab extends PluginSettingTab {
   constructor(
     app: App,
@@ -86,244 +96,284 @@ export class VaultBridgeSettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
-  display(): void {
-    const { containerEl } = this;
-    containerEl.empty();
-    containerEl.createEl('h2', { text: 'Vault Bridge · 知识库桥' });
-
-    this.renderStatusSection(containerEl);
-    this.renderSecuritySection(containerEl);
-    this.renderClientSection(containerEl);
-    this.renderLogSection(containerEl);
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return [
+      {
+        type: 'group',
+        heading: '运行状态',
+        items: [
+          {
+            name: '服务状态',
+            desc: '手机要访问电脑，需要这个服务处于运行中',
+            render: (setting) => this.renderStatus(setting),
+          },
+          {
+            name: '开启服务',
+            desc: '在电脑上监听端口，供手机通过局域网或公网地址访问',
+            render: (setting) => {
+              setting.addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.enabled).onChange(async (value) => {
+                  this.plugin.settings.enabled = value;
+                  await this.plugin.saveSettings();
+                  await this.plugin.applyServerState();
+                  this.update();
+                })
+              );
+            },
+          },
+          {
+            name: '随 Obsidian 启动',
+            desc: 'Obsidian 打开时自动开启服务，无需手动点',
+            render: (setting) => {
+              setting.addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.autoStart).onChange(async (value) => {
+                  this.plugin.settings.autoStart = value;
+                  await this.plugin.saveSettings();
+                })
+              );
+            },
+          },
+          {
+            name: '监听端口',
+            desc: '默认 8770。改动后需要点「重启服务」；若提示被占用请换一个',
+            render: (setting) => {
+              setting
+                .addText((text) =>
+                  text
+                    .setPlaceholder(String(DEFAULT_PORT))
+                    .setValue(String(this.plugin.settings.port))
+                    .onChange(async (value) => {
+                      const parsed = Number(value);
+                      if (!Number.isFinite(parsed) || parsed < 1024 || parsed > 65535) return;
+                      this.plugin.settings.port = Math.floor(parsed);
+                      await this.plugin.saveSettings();
+                    })
+                )
+                .addButton((button) =>
+                  button.setButtonText('重启服务').onClick(async () => {
+                    await this.plugin.restartServer();
+                    this.update();
+                  })
+                );
+            },
+          },
+        ],
+      },
+      {
+        type: 'group',
+        heading: '授权与安全',
+        items: [
+          {
+            name: '访问令牌',
+            desc: '手机端必须携带此令牌才能访问。泄漏后请立即重新生成',
+            render: (setting) => {
+              setting
+                .addText((text) => {
+                  text.setValue(this.plugin.settings.token);
+                  text.inputEl.addClass('vault-bridge-token-input');
+                  text.inputEl.readOnly = true;
+                  return text;
+                })
+                .addExtraButton((button) =>
+                  button
+                    .setIcon('copy')
+                    .setTooltip('复制令牌')
+                    .onClick(() => {
+                      void this.copy(this.plugin.settings.token);
+                    })
+                )
+                .addExtraButton((button) =>
+                  button
+                    .setIcon('refresh-cw')
+                    .setTooltip('重新生成（旧令牌立即失效）')
+                    .onClick(async () => {
+                      this.plugin.settings.token = generateToken();
+                      await this.plugin.saveSettings();
+                      new Notice('已生成新令牌，请在手机上更新');
+                      this.update();
+                    })
+                );
+            },
+          },
+          {
+            name: '允许手机上传',
+            desc: '关闭后手机只能下载，不能写入或新建文件',
+            render: (setting) => {
+              setting.addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.allowUpload).onChange(async (value) => {
+                  this.plugin.settings.allowUpload = value;
+                  await this.plugin.saveSettings();
+                })
+              );
+            },
+          },
+          {
+            name: '单次上传上限 (MB)',
+            desc: '手机把文件读进内存再发送，过大容易失败。默认 32 MB',
+            render: (setting) => {
+              setting.addText((text) =>
+                text.setValue(String(this.plugin.settings.maxUploadMB)).onChange(async (value) => {
+                  const parsed = Number(value);
+                  if (!Number.isFinite(parsed) || parsed <= 0) return;
+                  this.plugin.settings.maxUploadMB = Math.min(Math.floor(parsed), 512);
+                  await this.plugin.saveSettings();
+                })
+              );
+            },
+          },
+          {
+            name: '排除的目录',
+            desc: '列表里不显示的目录名，逗号分隔。默认隐藏 .trash、.git；配置目录始终禁止通过网络访问',
+            render: (setting) => {
+              setting.addText((text) =>
+                text.setValue(this.plugin.settings.excludeDirs).onChange(async (value) => {
+                  this.plugin.settings.excludeDirs = value;
+                  await this.plugin.saveSettings();
+                })
+              );
+            },
+          },
+        ],
+      },
+      {
+        type: 'group',
+        heading: '手机端',
+        items: [
+          {
+            name: '电脑地址',
+            desc: '手机连接电脑用的地址，例如 http://192.168.1.44:8770；外出时填公网 https 地址',
+            render: (setting) => {
+              setting.addText((text) =>
+                text
+                  .setPlaceholder('http://192.168.1.44:8770')
+                  .setValue(this.plugin.settings.clientServerUrl)
+                  .onChange(async (value) => {
+                    this.plugin.settings.clientServerUrl = value.trim();
+                    await this.plugin.saveSettings();
+                  })
+              );
+            },
+          },
+          {
+            name: '下载保存到手机的目录',
+            desc: '手机下载电脑文件时的落地目录，保持与电脑一致的相对结构。留空表示 vault 根目录',
+            render: (setting) => {
+              setting.addText((text) =>
+                text
+                  .setPlaceholder('VaultBridge下载')
+                  .setValue(this.plugin.settings.clientDownloadDir)
+                  .onChange(async (value) => {
+                    this.plugin.settings.clientDownloadDir = value.trim();
+                    await this.plugin.saveSettings();
+                  })
+              );
+            },
+          },
+          {
+            name: '上传到电脑的目标目录',
+            desc: '手机上传文件时落到电脑的哪个目录。留空表示电脑 vault 根目录',
+            render: (setting) => {
+              setting.addText((text) =>
+                text
+                  .setPlaceholder('（留空 = 根目录）')
+                  .setValue(this.plugin.settings.clientUploadDir)
+                  .onChange(async (value) => {
+                    this.plugin.settings.clientUploadDir = value.trim();
+                    await this.plugin.saveSettings();
+                  })
+              );
+            },
+          },
+        ],
+      },
+      {
+        type: 'group',
+        heading: '访问记录',
+        items: [
+          {
+            name: '记录访问日志',
+            desc: '只保留在内存中，重启 Obsidian 后清空',
+            render: (setting) => {
+              setting.addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.keepAccessLog).onChange(async (value) => {
+                  this.plugin.settings.keepAccessLog = value;
+                  if (!value) this.plugin.accessLog = [];
+                  await this.plugin.saveSettings();
+                  this.update();
+                })
+              );
+            },
+          },
+          {
+            name: '最近访问',
+            desc: '谁在什么时候下载或上传了什么',
+            render: (setting) => this.renderLogTable(setting),
+          },
+        ],
+      },
+    ];
   }
 
-  /** 手机端（传输面板）使用的设置，电脑端保存后随 vault 一起同步到手机 */
-  private renderClientSection(containerEl: HTMLElement): void {
-    containerEl.createEl('h3', { text: '手机端' });
-
-    containerEl.createEl('div', {
-      cls: 'vault-bridge-hint',
-      text: '以下几项填写在手机上打开「传输面板」时使用；在电脑上填这里也会随设置同步过去。',
-    });
-
-    new Setting(containerEl)
-      .setName('电脑地址')
-      .setDesc('手机连接电脑用的地址，例如 http://192.168.1.44:8770；外出时填公网 https 地址')
-      .addText((text) =>
-        text
-          .setPlaceholder('http://192.168.1.44:8770')
-          .setValue(this.plugin.settings.clientServerUrl)
-          .onChange(async (value) => {
-            this.plugin.settings.clientServerUrl = value.trim();
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName('下载保存到手机的目录')
-      .setDesc('手机下载电脑文件时的落地目录，保持与电脑一致的相对结构。留空表示 vault 根目录')
-      .addText((text) =>
-        text
-          .setPlaceholder('VaultBridge下载')
-          .setValue(this.plugin.settings.clientDownloadDir)
-          .onChange(async (value) => {
-            this.plugin.settings.clientDownloadDir = value.trim();
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName('上传到电脑的目标目录')
-      .setDesc('手机上传文件时落到电脑的哪个目录。留空表示电脑 vault 根目录')
-      .addText((text) =>
-        text
-          .setPlaceholder('（留空 = 根目录）')
-          .setValue(this.plugin.settings.clientUploadDir)
-          .onChange(async (value) => {
-            this.plugin.settings.clientUploadDir = value.trim();
-            await this.plugin.saveSettings();
-          })
-      );
-  }
-
-  /** 运行状态与手机访问地址 */
-  private renderStatusSection(containerEl: HTMLElement): void {
+  /** 把 IPv6 映射地址还原成易读的 IPv4 已在服务端处理，这里只负责展示 */
+  private renderStatus(setting: Setting): void {
     const server = this.plugin.server;
     const running = !!server && server.isRunning;
 
-    const statusEl = containerEl.createDiv({ cls: 'vault-bridge-status' });
-    statusEl.createEl('strong', { text: running ? '✅ 服务运行中' : '⏹ 服务已停止' });
+    const body = setting.settingEl.createDiv({ cls: 'vault-bridge-status' });
+    body.createDiv({ text: running ? '✅ 服务运行中' : '⏹ 服务已停止' });
+
     if (this.plugin.lastError) {
-      statusEl.createEl('div', { text: '⚠️ ' + this.plugin.lastError, cls: 'vault-bridge-error' });
+      body.createDiv({ text: '⚠️ ' + this.plugin.lastError, cls: 'vault-bridge-error' });
     }
 
-    if (running && server) {
-      const addresses = listListenAddresses(server.port);
-      if (addresses.length === 0) {
-        statusEl.createEl('div', { text: '未检测到局域网地址（请确认已连接 WiFi 或网线）' });
-      } else {
-        const list = statusEl.createEl('div', { cls: 'vault-bridge-addresses' });
-        addresses.forEach((address, index) => {
-          const line = list.createDiv({ cls: 'vault-bridge-address' });
-          line.createSpan({ text: address.iface + '：' });
-          const link = line.createEl('code', { text: address.url + '/?token=' + this.plugin.settings.token });
-          if (index === 0 && address.preferred) {
-            line.createSpan({ text: '  ← 手机优先用这个', cls: 'vault-bridge-hint' });
-          }
-          link.style.cursor = 'pointer';
-          link.title = '点击复制';
-          link.onclick = () => {
-            void this.copy(address.url + '/?token=' + this.plugin.settings.token);
-          };
-        });
-        statusEl.createEl('div', {
-          text:
-            '手机浏览器打开上面的地址即可传文件；手机 Obsidian 插件里填 ' +
-            addresses[0].url +
-            ' 与下方令牌。',
-          cls: 'vault-bridge-hint',
-        });
-      }
-    }
+    if (!running || !server) return;
 
-    new Setting(containerEl)
-      .setName('开启服务')
-      .setDesc('在电脑上监听端口，供手机通过局域网或公网地址访问')
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.enabled).onChange(async (value) => {
-          this.plugin.settings.enabled = value;
-          await this.plugin.saveSettings();
-          await this.plugin.applyServerState();
-          this.display();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName('随 Obsidian 启动')
-      .setDesc('Obsidian 打开时自动开启服务，无需手动点')
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.autoStart).onChange(async (value) => {
-          this.plugin.settings.autoStart = value;
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName('监听端口')
-      .setDesc('默认 8770。改动后服务会自动重启；若提示被占用请换一个')
-      .addText((text) =>
-        text
-          .setPlaceholder(String(DEFAULT_PORT))
-          .setValue(String(this.plugin.settings.port))
-          .onChange(async (value) => {
-            const parsed = Number(value);
-            if (!Number.isFinite(parsed) || parsed < 1024 || parsed > 65535) return;
-            this.plugin.settings.port = Math.floor(parsed);
-            await this.plugin.saveSettings();
-          })
-      )
-      .addButton((button) =>
-        button.setButtonText('重启服务').onClick(async () => {
-          await this.plugin.restartServer();
-          this.display();
-        })
-      );
-  }
-
-  /** 令牌与写权限 */
-  private renderSecuritySection(containerEl: HTMLElement): void {
-    containerEl.createEl('h3', { text: '授权与安全' });
-
-    new Setting(containerEl)
-      .setName('访问令牌')
-      .setDesc('手机端必须携带此令牌才能访问。泄漏后请立即重新生成')
-      .addText((text) => {
-        text.setValue(this.plugin.settings.token);
-        text.inputEl.style.width = '320px';
-        text.inputEl.readOnly = true;
-        return text;
-      })
-      .addExtraButton((button) =>
-        button
-          .setIcon('copy')
-          .setTooltip('复制令牌')
-          .onClick(() => {
-            void this.copy(this.plugin.settings.token);
-          })
-      )
-      .addExtraButton((button) =>
-        button
-          .setIcon('refresh-cw')
-          .setTooltip('重新生成（旧令牌立即失效）')
-          .onClick(async () => {
-            this.plugin.settings.token = generateToken();
-            await this.plugin.saveSettings();
-            new Notice('已生成新令牌，请在手机上更新');
-            this.display();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName('允许手机上传')
-      .setDesc('关闭后手机只能下载，不能写入或新建文件')
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.allowUpload).onChange(async (value) => {
-          this.plugin.settings.allowUpload = value;
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName('单次上传上限 (MB)')
-      .setDesc('手机把文件读进内存再发送，过大容易失败。默认 32 MB')
-      .addText((text) =>
-        text.setValue(String(this.plugin.settings.maxUploadMB)).onChange(async (value) => {
-          const parsed = Number(value);
-          if (!Number.isFinite(parsed) || parsed <= 0) return;
-          this.plugin.settings.maxUploadMB = Math.min(Math.floor(parsed), 512);
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName('排除的目录')
-      .setDesc('列表里不显示的目录名，逗号分隔。默认隐藏 .obsidian、.trash、.git')
-      .addText((text) =>
-        text.setValue(this.plugin.settings.excludeDirs).onChange(async (value) => {
-          this.plugin.settings.excludeDirs = value;
-          await this.plugin.saveSettings();
-        })
-      );
-  }
-
-  /** 访问日志，便于用户确认「谁在什么时候动了文件」 */
-  private renderLogSection(containerEl: HTMLElement): void {
-    containerEl.createEl('h3', { text: '访问记录' });
-
-    new Setting(containerEl)
-      .setName('记录访问日志')
-      .setDesc('只保留在内存中，重启 Obsidian 后清空')
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.keepAccessLog).onChange(async (value) => {
-          this.plugin.settings.keepAccessLog = value;
-          if (!value) this.plugin.accessLog = [];
-          await this.plugin.saveSettings();
-          this.display();
-        })
-      );
-
-    const entries = this.plugin.accessLog;
-    if (entries.length === 0) {
-      containerEl.createEl('div', { text: '暂无访问记录', cls: 'vault-bridge-hint' });
+    const addresses = listListenAddresses(server.port);
+    if (addresses.length === 0) {
+      body.createDiv({ text: '未检测到局域网地址（请确认已连接 WiFi 或网线）' });
       return;
     }
 
-    const table = containerEl.createEl('table', { cls: 'vault-bridge-log' });
+    const list = body.createDiv({ cls: 'vault-bridge-addresses' });
+    addresses.forEach((address, index) => {
+      const line = list.createDiv({ cls: 'vault-bridge-address' });
+      line.createSpan({ text: address.iface + '：' });
+      const link = line.createEl('code', {
+        text: address.url + '/?token=' + this.plugin.settings.token,
+      });
+      if (index === 0 && address.preferred) {
+        line.createSpan({ text: '  ← 手机优先用这个', cls: 'vault-bridge-hint' });
+      }
+      link.addClass('vault-bridge-copyable');
+      link.title = '点击复制';
+      link.onclick = () => {
+        void this.copy(address.url + '/?token=' + this.plugin.settings.token);
+      };
+    });
+
+    body.createDiv({
+      text:
+        '手机浏览器打开上面的地址即可传文件；手机 Obsidian 插件里填 ' + addresses[0].url + ' 与上方令牌。',
+      cls: 'vault-bridge-hint',
+    });
+  }
+
+  /** 访问日志表格 */
+  private renderLogTable(setting: Setting): void {
+    const entries = this.plugin.accessLog;
+    const body = setting.settingEl.createDiv({ cls: 'vault-bridge-log-wrap' });
+
+    if (entries.length === 0) {
+      body.createDiv({ text: '暂无访问记录', cls: 'vault-bridge-hint' });
+      return;
+    }
+
+    const table = body.createEl('table', { cls: 'vault-bridge-log' });
     const head = table.createEl('thead').createEl('tr');
     ['时间', '来源', '动作', '状态'].forEach((label) => head.createEl('th', { text: label }));
-    const body = table.createEl('tbody');
+    const tbody = table.createEl('tbody');
     entries.slice(0, 40).forEach((entry) => {
-      const row = body.createEl('tr');
+      const row = tbody.createEl('tr');
       row.createEl('td', { text: formatTime(entry.at) });
       row.createEl('td', { text: entry.ip });
       row.createEl('td', { text: entry.action });

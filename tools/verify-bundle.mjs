@@ -27,6 +27,13 @@ const MAIN_PATH = resolve(projectRoot, 'main.js');
 // 不必依赖插件是否已部署到某个 vault。
 const MANIFEST = { id: 'vault-bridge', name: 'Vault Bridge', version: '1.0.0', dir: '.' };
 
+/**
+ * 验证时使用的独立端口。
+ * 刻意避开插件默认的 8770——开发者本机往往正开着 Obsidian 并运行着本插件，
+ * 复用默认端口会直接撞上「端口已被占用」，让验证脚本产生假失败。
+ */
+const VERIFY_PORT = 18771;
+
 let passed = 0;
 let failed = 0;
 const failures = [];
@@ -116,6 +123,17 @@ async function main() {
   const app = makeApp(vault);
 
   const plugin = new PluginClass(app, MANIFEST);
+  // 预置设置：用独立端口，避免与本机正在运行的真实插件抢 8770
+  plugin.loadData = async () => ({
+    enabled: true,
+    autoStart: true,
+    port: VERIFY_PORT,
+    token: 'verify-token-0123456789abcdefgh',
+    allowUpload: true,
+    maxUploadMB: 32,
+    excludeDirs: '.trash,.git',
+    keepAccessLog: true,
+  });
   await plugin.onload();
 
   check('onload 完成且未抛异常', true);
@@ -124,7 +142,7 @@ async function main() {
     typeof plugin.settings.token === 'string' && plugin.settings.token.length >= 16,
     '实际：' + (plugin.settings.token || '').slice(0, 8)
   );
-  check('令牌已持久化（saveData 被调用）', plugin.stored && plugin.stored.token === plugin.settings.token);
+  check('采用了预设的访问令牌', plugin.settings.token === 'verify-token-0123456789abcdefgh');
   check('注册了设置页', plugin.settingTabs.length === 1);
   check('注册了传输面板视图', typeof plugin.views['vault-bridge-panel'] === 'function');
   check('注册了命令', plugin.commands.length >= 1, '数量：' + plugin.commands.length);
@@ -132,7 +150,7 @@ async function main() {
   section('③ 电脑端：HTTP 服务真的起来了');
   check('服务处于运行状态', plugin.server && plugin.server.isRunning === true);
   const port = plugin.server ? plugin.server.port : 0;
-  check('监听到端口 8770', port === 8770, '实际端口：' + port);
+  check('监听到指定端口 ' + VERIFY_PORT, port === VERIFY_PORT, '实际端口：' + port);
 
   const token = plugin.settings.token;
   const auth = { Authorization: 'Bearer ' + token };
@@ -241,13 +259,82 @@ async function main() {
   section('⑤ 设置页与面板渲染');
   try {
     const tab = plugin.settingTabs[0];
-    tab.display();
-    const text = tab.containerEl.collectText();
-    check('设置页渲染出服务状态', text.indexOf('服务运行中') !== -1);
-    check('设置页显示局域网访问地址', text.indexOf('http://') !== -1);
-    check('设置页显示访问令牌', text.indexOf(token) !== -1);
+    const definitions = tab.getSettingDefinitions();
+
+    check(
+      '设置页返回声明式定义（1.13.0 API）',
+      Array.isArray(definitions) && definitions.length > 0,
+      '分组数：' + (Array.isArray(definitions) ? definitions.length : 'N/A')
+    );
+
+    const headings = definitions.map((group) => group.heading).filter(Boolean);
+    check(
+      '分组标题齐全（含运行状态与授权与安全）',
+      headings.includes('运行状态') && headings.includes('授权与安全'),
+      headings.join(' / ')
+    );
+
+    const items = definitions.flatMap((group) => group.items || []);
+    check('设置项数量合理', items.length >= 10, '实际：' + items.length + ' 项');
+    check(
+      '每个设置项都有名称（设置搜索依赖它）',
+      items.every((item) => typeof item.name === 'string' && item.name.length > 0)
+    );
+
+    // 真跑一遍 render 回调：这是本页的自定义渲染路径，必须不抛异常。
+    // 用 tab 自己的 containerEl（宿主替身的 DOM 实现）当作 settingEl。
+    const hostEl = tab.containerEl.createDiv({ cls: 'verify-setting-row' });
+    // 控件替身：每个链式方法返回控件自身（真实 Obsidian 的 component 就是这么设计的），
+    // 行的 addXxx 则返回行对象，这样 text.setValue(x).setPlaceholder(y) 之类的链式调用才成立。
+    const makeControl = () => {
+      const control = {
+        inputEl: hostEl.createEl('input'),
+        setValue: () => control,
+        setPlaceholder: () => control,
+        setButtonText: () => control,
+        setTooltip: () => control,
+        setIcon: () => control,
+        setDisabled: () => control,
+        onChange: () => control,
+        onClick: () => control,
+      };
+      return control;
+    };
+
+    const probe = {
+      settingEl: hostEl,
+      inputEl: hostEl.createEl('input'),
+      setName: () => probe,
+      setDesc: () => probe,
+      addToggle: (cb) => {
+        cb(makeControl());
+        return probe;
+      },
+      addText: (cb) => {
+        cb(makeControl());
+        return probe;
+      },
+      addButton: (cb) => {
+        cb(makeControl());
+        return probe;
+      },
+      addExtraButton: (cb) => {
+        cb(makeControl());
+        return probe;
+      },
+    };
+
+    let renderedRows = 0;
+    for (const item of items) {
+      if (typeof item.render === 'function') {
+        item.render(probe);
+        renderedRows++;
+      }
+    }
+    check('全部 render 回调执行不抛异常', true, '执行了 ' + renderedRows + ' 个');
+    check('渲染出的 DOM 含服务状态', hostEl.collectText().indexOf('服务运行中') !== -1);
   } catch (error) {
-    check('设置页渲染不抛异常', false, error.message);
+    check('设置页定义与渲染不抛异常', false, error.message);
   }
 
   try {

@@ -6,9 +6,6 @@
  * 纯函数、无副作用，便于单元测试穷举攻击面。
  */
 
-/** 默认禁止通过网络访问的目录（配置目录内含 API key、令牌等机密） */
-export const BLOCKED_PREFIXES = ['.obsidian'];
-
 /** 路径非法时抛出，由上层转换成 HTTP 400 */
 export class UnsafePathError extends Error {
   constructor(message: string) {
@@ -18,17 +15,44 @@ export class UnsafePathError extends Error {
 }
 
 /**
+ * 把配置目录整理成可比较的目录名。
+ *
+ * Obsidian 的配置目录名由用户配置（`Vault#configDir`），不是固定的 `.obsidian`，
+ * 因此这里只用调用方传入的真实值，绝不硬编码字面量。
+ */
+export function blockedDirNames(configDir?: string): string[] {
+  if (typeof configDir !== 'string' || !configDir.trim()) return [];
+  const dir = configDir.trim().replace(/^\/+/, '').replace(/\/+$/, '').toLowerCase();
+  return dir ? [dir] : [];
+}
+
+/**
+ * 路径中是否出现了隐藏目录（以点开头的段）。
+ *
+ * 这是「配置目录保护」的兜底：即便拿不到 configDir，也不放行任何隐藏目录——
+ * 以点开头的目录装的是元数据（配置、回收站、视图状态等），
+ * 不该通过网络暴露。有了这层，保护就不依赖调用方是否记得传 configDir。
+ */
+function hasHiddenSegment(path: string): boolean {
+  return path.split('/').some((segment) => segment.startsWith('.'));
+}
+
+/**
  * 把任意客户端输入整理成 vault 内相对路径。
  *
  * 接受：`''`、`'a/b.md'`、`'/a/b.md'`、`'a\\b.md'`
  * 拒绝：`'../etc/passwd'`、`'/etc/passwd'`、`'a/../../x'`、含 NUL、含盘符
  *
  * @param input 客户端原始路径
- * @param options.allowHidden 是否放行 `.obsidian` 等敏感目录（默认 false）
+ * @param options.allowHidden 是否放行配置目录（默认 false，仅内部调用可放开）
+ * @param options.configDir 当前 vault 的真实配置目录名，取自 `Vault#configDir`
  * @returns 规范化后的相对路径；vault 根返回空串
  * @throws {UnsafePathError} 路径试图越界或触碰禁用目录
  */
-export function normalizeVaultPath(input: string, options: { allowHidden?: boolean } = {}): string {
+export function normalizeVaultPath(
+  input: string,
+  options: { allowHidden?: boolean; configDir?: string } = {}
+): string {
   if (typeof input !== 'string') {
     throw new UnsafePathError('路径必须是字符串');
   }
@@ -65,10 +89,17 @@ export function normalizeVaultPath(input: string, options: { allowHidden?: boole
 
   if (!options.allowHidden) {
     const lower = normalized.toLowerCase();
-    for (const prefix of BLOCKED_PREFIXES) {
+
+    // 规则一：配置目录（真实名字来自 Vault#configDir）一律拒绝
+    for (const prefix of blockedDirNames(options.configDir)) {
       if (lower === prefix || lower.startsWith(prefix + '/')) {
         throw new UnsafePathError('该目录受保护，不允许通过网络访问');
       }
+    }
+
+    // 规则二：任何隐藏目录都拒绝——兜底保护，不依赖能否拿到 configDir
+    if (hasHiddenSegment(normalized)) {
+      throw new UnsafePathError('隐藏目录不允许通过网络访问');
     }
   }
 
@@ -95,7 +126,7 @@ export function baseName(path: string): string {
 }
 
 /** 判断路径本身或其祖先是否命中禁用前缀 */
-export function isBlockedPath(path: string): boolean {
+export function isBlockedPath(path: string, configDir?: string): boolean {
   const lower = path.toLowerCase();
-  return BLOCKED_PREFIXES.some((p) => lower === p || lower.startsWith(p + '/'));
+  return blockedDirNames(configDir).some((p) => lower === p || lower.startsWith(p + '/'));
 }

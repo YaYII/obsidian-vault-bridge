@@ -1,7 +1,14 @@
 /** 路径安全是服务端第一道防线，这里把已知的越界手法逐个钉死。 */
 
 import { describe, expect, it } from 'vitest';
-import { UnsafePathError, baseName, joinPath, normalizeVaultPath, parentOf } from '../src/shared/path';
+import {
+  UnsafePathError,
+  baseName,
+  blockedDirNames,
+  joinPath,
+  normalizeVaultPath,
+  parentOf,
+} from '../src/shared/path';
 
 describe('normalizeVaultPath · 合法输入', () => {
   it('空串代表 vault 根目录', () => {
@@ -102,5 +109,52 @@ describe('路径工具', () => {
   it('joinPath 拼接', () => {
     expect(joinPath('', 'a.md')).toBe('a.md');
     expect(joinPath('a/b', 'c.md')).toBe('a/b/c.md');
+  });
+});
+
+describe('配置目录保护 · 不依赖硬编码的 .obsidian', () => {
+  it('用户自定义的配置目录同样被拒绝', () => {
+    expect(() => normalizeVaultPath('.my-config/app.json', { configDir: '.my-config' })).toThrow(
+      UnsafePathError
+    );
+    expect(() => normalizeVaultPath('.my-config', { configDir: '.my-config' })).toThrow(UnsafePathError);
+  });
+
+  it('配置目录名带前导斜杠也能正确比较', () => {
+    expect(() => normalizeVaultPath('.cfg/app.json', { configDir: '/.cfg/' })).toThrow(UnsafePathError);
+  });
+
+  it('拿不到 configDir 时，隐藏目录仍被兜底规则拒绝', () => {
+    // 这是「保护不依赖调用方是否记得传参」的关键保证
+    expect(() => normalizeVaultPath('.anything/x.md')).toThrow(UnsafePathError);
+    expect(() => normalizeVaultPath('.trash/删掉的.md')).toThrow(UnsafePathError);
+    expect(() => normalizeVaultPath('笔记/.隐藏/x.md')).toThrow(UnsafePathError);
+  });
+
+  it('深层路径里的隐藏段同样被拦下', () => {
+    expect(() => normalizeVaultPath('团队知识库/.cache/a.md')).toThrow(UnsafePathError);
+  });
+
+  it('点不在开头的目录不受影响', () => {
+    expect(normalizeVaultPath('a.b/c.md')).toBe('a.b/c.md');
+    expect(normalizeVaultPath('版本1.0/说明.md')).toBe('版本1.0/说明.md');
+    expect(normalizeVaultPath('笔记/obsidian 使用心得.md')).toBe('笔记/obsidian 使用心得.md');
+  });
+
+  it('allowHidden 仍可显式放行（供内部调用）', () => {
+    expect(normalizeVaultPath('.config/a.json', { allowHidden: true })).toBe('.config/a.json');
+  });
+});
+
+describe('blockedDirNames', () => {
+  it('没有配置目录信息时返回空（保护由隐藏目录兜底规则承担）', () => {
+    expect(blockedDirNames()).toEqual([]);
+    expect(blockedDirNames('')).toEqual([]);
+    expect(blockedDirNames('   ')).toEqual([]);
+  });
+
+  it('规范化大小写与斜杠', () => {
+    expect(blockedDirNames('.Obsidian')).toEqual(['.obsidian']);
+    expect(blockedDirNames('/.cfg/')).toEqual(['.cfg']);
   });
 });

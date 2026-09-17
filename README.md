@@ -21,6 +21,12 @@ No cloud service, no account, no third-party server in the middle. Files travel 
 | **Built-in setup page** | `/setup` walks you through installing the mobile plugin and hands out the installation bundle — no cable, no cloud drive. |
 | **LAN first, public optional** | Same-WiFi transfers go straight over your local network. For 4G/5G there is a one-command HTTPS tunnel. |
 
+## Requirements
+
+Obsidian **1.13.0 or later**. The settings tab uses the declarative settings API
+introduced in 1.13.0, which is what lets these settings show up in Obsidian's
+settings search.
+
 ## Quick start
 
 ### 1. On the computer

@@ -18,7 +18,11 @@ const TOKEN_ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789';
  * 这里显式探测，把问题说清楚。
  */
 function requireWebCrypto(): Crypto {
-  const impl = typeof globalThis === 'undefined' ? undefined : (globalThis as { crypto?: Crypto }).crypto;
+  // 用 window 而不是 globalThis：Obsidian 建议如此以兼容弹出窗口，
+  // 弹出窗口拥有自己的 window，而 globalThis 在部分宿主里指向别处。
+  // 纯 Node 环境（测试进程、开发脚本）没有 window，
+  // 由 tests/setup/host-env.ts 与 tools/node-webcrypto.mjs 补上。
+  const impl = typeof window === 'undefined' ? undefined : window.crypto;
   if (!impl || typeof impl.getRandomValues !== 'function') {
     throw new Error('当前运行环境不提供 Web Crypto（crypto.getRandomValues），无法安全生成访问令牌');
   }

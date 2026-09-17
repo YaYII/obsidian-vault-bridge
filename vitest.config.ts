@@ -16,8 +16,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],
-    // Node 18 缺少全局 Web Crypto，测试进程里补上
-    setupFiles: ['tests/setup/node18-crypto.ts'],
+    // 让测试进程具备 Obsidian 宿主的全局（window、Web Crypto）
+    setupFiles: ['tests/setup/host-env.ts'],
     coverage: {
       provider: 'v8',
       // 只统计插件自身源码，不含测试与工具脚本

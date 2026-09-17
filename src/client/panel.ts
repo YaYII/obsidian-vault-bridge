@@ -133,15 +133,21 @@ export class BridgePanel extends ItemView {
   private readLocalEntries(folder: TFolder): BridgeEntry[] {
     const entries: BridgeEntry[] = [];
     for (const child of folder.children) {
-      if (child.name === '.obsidian' || child.name === '.trash' || child.name === '.git') continue;
-      const isFolder = child instanceof TFolder;
-      entries.push({
-        name: child.name,
-        path: folder.path ? folder.path + '/' + child.name : child.name,
-        kind: isFolder ? 'folder' : 'file',
-        size: isFolder ? 0 : (child as TFile).stat.size,
-        mtime: isFolder ? 0 : (child as TFile).stat.mtime,
-      });
+      if (child.name === this.app.vault.configDir || child.name === '.trash' || child.name === '.git')
+        continue;
+      const entryPath = folder.path ? folder.path + '/' + child.name : child.name;
+      if (child instanceof TFolder) {
+        entries.push({ name: child.name, path: entryPath, kind: 'folder', size: 0, mtime: 0 });
+      } else if (child instanceof TFile) {
+        // 用 instanceof 安全收窄，避免对 TFile 做类型断言
+        entries.push({
+          name: child.name,
+          path: entryPath,
+          kind: 'file',
+          size: child.stat.size,
+          mtime: child.stat.mtime,
+        });
+      }
     }
     entries.sort((a, b) => {
       if (a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1;
@@ -597,7 +603,8 @@ export class BridgePanel extends ItemView {
       if (child instanceof TFile) {
         files.push(child);
       } else if (child instanceof TFolder) {
-        if (child.name === '.obsidian' || child.name === '.trash' || child.name === '.git') continue;
+        if (child.name === this.app.vault.configDir || child.name === '.trash' || child.name === '.git')
+          continue;
         for (const nested of this.collectLocalFiles(child)) files.push(nested);
       }
     }
