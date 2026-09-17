@@ -5,7 +5,13 @@ import { DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_PORT, DEFAULT_EXCLUDED_DIRS } from '.
 import { generateToken } from './shared/token';
 import { formatTime } from './shared/format';
 import { listListenAddresses } from './server/net';
-import { MAX_PROFILES, inferProfileLabel, type ServerProfile } from './shared/server-profile';
+import {
+  MAX_PROFILES,
+  inferProfileLabel,
+  rememberProfile,
+  type ServerProfile,
+} from './shared/server-profile';
+import { extractTokenFromUrl, normalizeBaseUrl } from './client/api-client';
 import { describeSyncSummary, syncFromComputer } from './client/library-sync';
 import { describeError } from './client/error-text';
 import type VaultBridgePlugin from './main';
@@ -288,7 +294,16 @@ export class VaultBridgeSettingTab extends PluginSettingTab {
                   .setPlaceholder('http://192.168.1.44:8770')
                   .setValue(this.plugin.settings.clientServerUrl)
                   .onChange(async (value) => {
-                    this.plugin.settings.clientServerUrl = value.trim();
+                    // 允许直接粘整条链接：地址只留前缀，里面的令牌记进历史档案
+                    const pastedToken = extractTokenFromUrl(value);
+                    this.plugin.settings.clientServerUrl = normalizeBaseUrl(value);
+                    if (pastedToken) {
+                      this.plugin.settings.serverProfiles = rememberProfile(
+                        this.plugin.settings.serverProfiles,
+                        this.plugin.settings.clientServerUrl,
+                        pastedToken
+                      );
+                    }
                     await this.plugin.saveSettings();
                   })
               );

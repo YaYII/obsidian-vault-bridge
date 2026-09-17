@@ -37,10 +37,28 @@ function isErrorPayload(value: unknown): value is { message: string } {
   return typeof (value as { message?: unknown }).message === 'string';
 }
 
-/** 把用户输入的地址整理成规范形式 */
+/**
+ * 从粘贴进来的链接里取出令牌。
+ *
+ * 设置页给手机的就是带参数的完整链接（…/obs?token=xxx），用户通常整条粘进「电脑地址」，
+ * 这里顺手把令牌取出来，用户就不必再手抄一遍。
+ */
+export function extractTokenFromUrl(raw: string): string {
+  const match = /[?&]token=([^&#\s]+)/i.exec(raw || '');
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
+/**
+ * 把用户输入的地址整理成规范形式。
+ *
+ * 必须剥掉查询串与锚点：若把 token 参数留在地址里，后续请求会拼成
+ * …/obs?token=xxx/api/health，网关只会回一个 301 或网页，于是报
+ * 「电脑返回了无法解析的内容」。令牌由 extractTokenFromUrl 单独取走。
+ */
 export function normalizeBaseUrl(raw: string): string {
   let value = (raw || '').trim();
   if (!value) return '';
+  value = value.split('#')[0].split('?')[0];
   if (!/^https?:\/\//i.test(value)) {
     value = 'http://' + value;
   }
@@ -192,7 +210,12 @@ export class BridgeClient {
     try {
       return JSON.parse(response.text);
     } catch {
-      throw new BridgeClientError('电脑返回了无法解析的内容', 'server');
+      throw new BridgeClientError(
+        '电脑返回的不是 JSON（HTTP ' +
+          response.status +
+          '）。常见原因：地址里带了 token 参数，或缺少路径前缀（公网入口形如 https://域名/obs）',
+        'server'
+      );
     }
   }
 }

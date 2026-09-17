@@ -1,7 +1,7 @@
 {
   "id": "vault-bridge",
   "name": "Vault Bridge",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "minAppVersion": "1.13.0",
   "description": "Open a token-protected port on your computer, then upload and download vault files from your phone over a URL.",
   "author": "YaYII",

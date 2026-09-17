@@ -8,7 +8,7 @@
  */
 
 import { ItemView, Notice, Platform, TFile, TFolder, WorkspaceLeaf, setIcon } from 'obsidian';
-import { BridgeClient, BridgeClientError, normalizeBaseUrl } from './api-client';
+import { BridgeClient, BridgeClientError, extractTokenFromUrl, normalizeBaseUrl } from './api-client';
 import { formatBytes } from '../shared/format';
 import { parentOf } from '../shared/path';
 import { resolveDownloadTarget, resolveUploadTarget } from '../shared/transfer-path';
@@ -272,8 +272,12 @@ export class BridgePanel extends ItemView {
     });
     input.addEventListener('change', () => {
       void (async () => {
+        // 整条浏览器链接（…/obs?token=xxx）也能直接用：地址只留前缀，令牌顺手取走
+        const pastedToken = extractTokenFromUrl(input.value);
         this.plugin.settings.clientServerUrl = normalizeBaseUrl(input.value);
+        if (pastedToken) this.state.serverToken = pastedToken;
         await this.plugin.saveSettings();
+        if (pastedToken) await this.render();
       })();
     });
 
@@ -309,8 +313,9 @@ export class BridgePanel extends ItemView {
     });
     connectBtn.addEventListener('click', () => {
       void (async () => {
+        const pastedToken = extractTokenFromUrl(input.value);
         this.plugin.settings.clientServerUrl = normalizeBaseUrl(input.value);
-        this.state.serverToken = tokenInput.value.trim();
+        this.state.serverToken = tokenInput.value.trim() || pastedToken;
         await this.plugin.saveSettings();
         await this.tryConnect(false);
       })();
