@@ -1,25 +1,33 @@
 {
   "name": "obsidian-vault-bridge",
   "version": "1.0.0",
-  "description": "在电脑上开一个带授权保护的端口，手机通过 URL 上传/下载知识库文件",
+  "description": "Open a token-protected port on your computer, then upload and download vault files from your phone over a URL.",
   "type": "module",
   "private": true,
   "scripts": {
     "build": "node esbuild.config.mjs",
     "dev": "node esbuild.config.mjs --watch",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint src tests",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"tools/*.mjs\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"tools/*.mjs\"",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "verify": "node tools/verify-bundle.mjs",
+    "bench": "node tools/bench.mjs",
+    "tunnel": "bash tools/tunnel.sh",
     "install:plugin": "node tools/install.mjs"
   },
   "keywords": [
     "obsidian",
-    "plugin",
+    "obsidian-plugin",
     "vault",
-    "sync",
-    "lan",
+    "file-transfer",
     "upload",
-    "download"
+    "download",
+    "lan",
+    "self-hosted"
   ],
   "license": "MIT",
   "engines": {

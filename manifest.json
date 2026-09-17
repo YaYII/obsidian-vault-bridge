@@ -3,7 +3,7 @@
   "name": "Vault Bridge",
   "version": "1.0.0",
   "minAppVersion": "1.4.0",
-  "description": "电脑端开放带令牌授权的端口，手机通过 URL 上传/下载知识库文件。",
+  "description": "Open a token-protected port on your computer, then upload and download vault files from your phone over a URL.",
   "author": "YaYII",
   "authorUrl": "https://github.com/YaYII",
   "isDesktopOnly": false

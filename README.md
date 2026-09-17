@@ -1,141 +1,144 @@
-# Vault Bridge · 知识库桥
+# Vault Bridge
 
-在电脑上开一个**带令牌授权**的端口，手机通过 URL 就能和电脑互相传文件。
+> [English](README.md) · [简体中文](docs/README.zh-CN.md)
 
-- **电脑端**只做服务端：开放端口、校验令牌、读写知识库；
-- **手机端**只做客户端：浏览电脑上的文件并下载，或把手机里的文件上传到电脑。
+Open a **token-protected port** on your computer, then upload and download vault files from your phone over a URL.
 
-一份代码两端跑：桌面端启动 HTTP 服务，iOS/Android 端只做客户端，角色由运行平台自动判定。
+One codebase plays two roles:
 
----
+- **On desktop** it runs an HTTP server: opens the port, verifies the token, reads and writes your vault.
+- **On mobile** it is a client only: browse files on the computer and download them, or send files from the phone back to the computer.
 
-## 它能解决什么
+No cloud service, no account, no third-party server in the middle. Files travel directly between your own devices.
 
-| 场景                           | 怎么做                                                                     |
-| ------------------------------ | -------------------------------------------------------------------------- |
-| 把电脑上的资料拉到手机上随时看 | 手机打开传输面板 → 浏览电脑目录 → 点文件下载（保持相同目录结构，双链不断） |
-| 手机上记的笔记同步回电脑       | 浏览手机目录 → 点文件上传 → 落到电脑指定目录                               |
-| 批量搬运一个文件夹             | 点文件夹即可递归下载 / 上传（带进度与失败计数）                            |
-| 手机没装插件也想传             | 浏览器直接打开电脑地址，网页版功能与插件版一致                             |
+## Features
 
-## 快速开始
+| | |
+|---|---|
+| **Download to phone** | Browse the remote vault and tap a file. Tapping a folder downloads it recursively, keeping the same relative structure so wiki-links and attachments keep working on mobile. |
+| **Upload to computer** | Browse the phone vault and send files back. The landing folder is configurable. |
+| **Works without the plugin** | The desktop server also serves a mobile-friendly web page, so any phone browser can transfer files with zero install. |
+| **Built-in setup page** | `/setup` walks you through installing the mobile plugin and hands out the installation bundle — no cable, no cloud drive. |
+| **LAN first, public optional** | Same-WiFi transfers go straight over your local network. For 4G/5G there is a one-command HTTPS tunnel. |
 
-### 一、电脑端（一次性配置）
+## Quick start
 
-1. 把插件放到 vault 的插件目录并启用：
-
-   ```bash
-   npm install && npm run build
-   node tools/install.mjs --enable        # 安装并写入启用列表
-   ```
-
-   或者在 Obsidian 里：设置 → 第三方插件 → 已安装插件 → 打开 **Vault Bridge**。
-
-2. 重启 Obsidian（或重新加载插件）后，服务会自动在 **8770** 端口启动。
-
-3. 打开插件设置页，能看到：
-
-   - ✅ 服务运行中
-   - 形如 `http://192.168.1.44:8770/?token=xxxxx` 的**局域网地址**
-   - 一串**访问令牌**
-
-   点地址即可复制。
-
-### 二、手机端（两种方式任选）
-
-**方式 A：手机浏览器（零安装，推荐先用）**
-
-用手机浏览器打开电脑设置页里那条带令牌的链接，即可上传下载。
-建议「添加到主屏幕」，之后点图标就能用。
-
-**方式 B：手机装 Obsidian 插件（体验更好）**
-
-1. 手机浏览器打开 `http://<电脑IP>:8770/setup`
-2. 点「下载插件安装包」，存到「文件」
-3. 解压后把 3 个文件放进 <你的库>/`.obsidian/plugins/vault-bridge/`
-4. Obsidian → 设置 → 第三方插件 → 启用 **Vault Bridge**
-5. 打开传输面板，填入上方地址与令牌
-
-> iOS 细节与截图级步骤见 [docs/手机安装与使用.md](docs/手机安装与使用.md)
-
-## 网络：局域网与公网
-
-| 场景                  | 地址形式                        | 需要做什么                         |
-| --------------------- | ------------------------------- | ---------------------------------- |
-| 手机与电脑同一个 WiFi | `http://192.168.1.44:8770`      | 无，开箱即用                       |
-| 手机用 4G/5G 在外网   | `https://xxx.trycloudflare.com` | 电脑上执行 `tools/tunnel.sh start` |
-
-公网必须用 **https**：iOS 的传输安全策略（ATS）会直接拦掉明文 http 请求，
-这也是为什么手机在外网时不能用局域网地址。
-
-```bash
-tools/tunnel.sh start     # 建立隧道并打印公网地址
-tools/tunnel.sh status    # 查看状态
-tools/tunnel.sh stop      # 关闭
-```
-
-快速隧道的域名每次重启都会变，重启后在手机上改一次「电脑地址」即可，令牌不用改。
-
-## 安全设计
-
-端口一旦开放，任何能连上的人都会尝试访问，因此：
-
-- **令牌是唯一凭据**：32 位 URL 安全随机字符，可用 `Authorization: Bearer` 头或 `?token=` 参数携带；
-- **恒定时间比较**：避免通过响应耗时逐字符爆破；
-- **失败限流**：同一 IP 一分钟内失败 8 次封禁 5 分钟；
-- **路径沙箱**：所有网络路径先规范化，`../` 逃逸、绝对路径、盘符一律拒绝；
-- **配置目录隔离**：`.obsidian` 默认禁止通过网络读写（防止令牌与插件配置被覆写）；
-- **可关闭写入**：设置里关掉「允许手机上传」后，手机只能下载；
-- **上传体积上限**：默认 32 MB，可调；
-- **访问审计**：设置页可查看谁在什么时候做了什么。
-
-也可以随时在设置页点「重新生成」令牌，旧令牌立即失效。
-
-## 常见问题
-
-**手机连不上？**
-
-1. 先访问 `http://<电脑IP>:8770/api/health`，返回 JSON 说明网络通；
-2. 返回 401 说明网络通但令牌不对；
-3. 都打不开，检查手机与电脑是否在同一 WiFi、电脑防火墙是否放行该端口。
-
-**端口被占用？** 设置页换一个端口（1024–65535），点「重启服务」。
-
-**下载的文件在哪？** 默认按电脑上的相对路径落在手机的 `VaultBridge下载/` 目录，可在设置里改。
-
-**能改上传落点吗？** 能，设置页「上传到电脑的目标目录」，留空即落到电脑 vault 根目录。
-
-## 开发
+### 1. On the computer
 
 ```bash
 npm install
-npm run build          # 打包成 main.js
-npm run typecheck      # 类型检查
-npm test               # 101 个单元与集成测试
-node tools/verify-bundle.mjs   # 42 项产物级验证（真起端口打真请求）
-npm run install:plugin # 安装到 vault
+npm run build
+node tools/install.mjs --enable    # install into your vault and enable it
 ```
 
-### 目录结构
+Or copy `main.js`, `manifest.json` and `styles.css` into
+`<your vault>/.obsidian/plugins/vault-bridge/` and enable it under
+**Settings → Community plugins**.
+
+Reload Obsidian; the server starts automatically on port **8770**.
+
+The plugin settings then show:
+
+- the running status,
+- a LAN address such as `http://192.168.1.44:8770/?token=…`,
+- the access token.
+
+Click the address to copy it.
+
+### 2. On the phone
+
+**Option A — browser, nothing to install.** Open the copied link on your phone.
+Add it to your home screen and it behaves like an app.
+
+**Option B — the mobile plugin.** On the phone open `http://<computer-ip>:8770/setup`,
+download the bundle, unzip it into `<your vault>/.obsidian/plugins/vault-bridge/`,
+then enable **Vault Bridge** in Obsidian and enter the address and token.
+
+Step-by-step iOS instructions (中文): [docs/mobile-setup.md](docs/mobile-setup.md).
+
+## Network
+
+| Situation | Address | What to do |
+|---|---|---|
+| Phone and computer on the same WiFi | `http://192.168.1.44:8770` | Nothing — it just works |
+| Phone on 4G/5G | `https://xxx.trycloudflare.com` | Run `tools/tunnel.sh start` on the computer |
+
+Public access must be **HTTPS**: iOS App Transport Security rejects plain HTTP requests
+from the app, which is why the LAN address stops working outside your home network.
+
+```bash
+tools/tunnel.sh start     # start the tunnel and print the public URL
+tools/tunnel.sh status
+tools/tunnel.sh stop
+```
+
+Quick-tunnel hostnames change on every restart. Update the address on your phone when that
+happens; the token stays the same.
+
+## Security
+
+An open port gets probed, so every request is treated as hostile until proven otherwise.
+
+- **The token is the only credential** — 32 URL-safe random characters, sent as `Authorization: Bearer` or `?token=`.
+- **Constant-time comparison** — response timing cannot be used to guess the token character by character.
+- **Rate limiting** — 8 failures from one IP within a minute triggers a 5-minute block.
+- **Path sandbox** — every path from the network is normalized first; `../` escapes, absolute paths and drive letters are rejected.
+- **The config directory is off-limits** — `.obsidian` cannot be read or written over the network, so tokens and plugin data cannot be exfiltrated or overwritten.
+- **Writes can be disabled** — turn off "allow upload" and the phone becomes read-only.
+- **Upload size cap** — 32 MB by default, configurable.
+- **Access log** — see who did what and when in the settings tab.
+
+Regenerating the token in the settings invalidates the old one immediately.
+
+## FAQ
+
+**The phone cannot connect.**
+Open `http://<computer-ip>:8770/api/health` in the phone browser.
+JSON back means the network is fine. A 401 means the network is fine but the token is wrong.
+Nothing at all means WiFi or firewall.
+
+**Port already in use?** Change the port in the settings (1024–65535) and press "restart service".
+
+**Where do downloaded files go?** Into `VaultBridge下载/` on the phone, mirroring the computer's
+relative paths. Configurable in the settings.
+
+## How one bundle runs on both platforms
+
+Mobile Obsidian cannot load Node built-in modules. The build therefore:
+
+- bundles with `platform: browser` and marks `http`/`os`/`fs` as external,
+- runs server code only when `Platform.isDesktopApp` is true, resolving Node modules lazily
+  through a single `nodeRequire()` chokepoint.
+
+`tools/verify-bundle.mjs` loads the real `main.js` the same way Obsidian does — injecting
+`module`/`exports`/`require` through `new Function` — then starts the server and fires real HTTP
+requests. It also asserts that on mobile the plugin **creates no server instance and binds no port**.
+
+## Development
+
+```bash
+npm run build          # bundle to main.js
+npm run typecheck
+npm run lint
+npm test               # 160 unit & integration tests
+npm run test:coverage
+npm run verify         # 42 bundle-level assertions against the real artifact
+npm run bench          # end-to-end latency benchmark
+```
+
+### Layout
 
 ```
 src/
-├── main.ts              插件入口，按平台分派两端角色
-├── settings.ts          设置模型与电脑端设置页
-├── shared/              两端共享：类型、路径安全、令牌、协议常量、格式化
-├── server/              电脑端：HTTP 服务、路由、认证、vault 操作、网页界面
-└── client/              手机端：API 客户端与传输面板
-tests/                   vitest：路径攻击面、认证限流、路由行为、真端口集成
-tools/                  安装脚本、公网隧道、产物验证、宿主替身
+├── main.ts              plugin entry; dispatches the two roles by platform
+├── settings.ts          settings model and the desktop settings tab
+├── shared/              used by both sides: types, path safety, token, protocol, transfer paths
+├── server/              desktop: HTTP server, router, auth, vault ops, web UI, self-setup page
+└── client/              mobile: API client and the transfer panel
+tests/                   vitest: attack surface, auth, routing, real-port integration
+tools/                   installer, tunnel, bundle verification, Obsidian host double
 ```
 
-### 两端共用一份产物的关键
+## License
 
-移动端不能加载 Node 内置模块。因此：
-
-- esbuild 以 `platform: browser` 打包，并把 `http`/`os`/`fs` 等标记为 external；
-- 服务端代码只在 `Platform.isDesktopApp` 为真时执行，Node 模块经 `nodeRequire()` 惰性解析；
-- 产物里保留的是原样的 `typeof require === 'function' ? require : null`，移动端永不触发。
-
-`tools/verify-bundle.mjs` 会用 Obsidian 的注入式加载方式跑一遍产物，
-并断言「手机端 onload 后没有创建任何服务端实例、没有占用端口」。
+[MIT](LICENSE)
