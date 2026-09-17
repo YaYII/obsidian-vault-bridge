@@ -164,7 +164,18 @@ class FakeEl {
   empty() {
     this.children = [];
   }
-  addClass() {}
+  addClass(name) {
+    this.cls = this.cls ? this.cls + ' ' + name : name;
+  }
+  hasClass(name) {
+    return (this.cls || '').split(/\s+/).includes(name);
+  }
+  /** 递归查找带某类名的后代，用于断言「这个元素真的挂上了该类」 */
+  hasDescendantClass(name) {
+    return this.children.some(
+      (child) => (child.cls || '').split(/\s+/).includes(name) || child.hasDescendantClass(name)
+    );
+  }
   removeClass() {}
   toggleClass() {}
   setText(text) {

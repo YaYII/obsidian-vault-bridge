@@ -402,6 +402,21 @@ async function main() {
     check('设置页有「一键同步整个库」按钮', settingsText.indexOf('一键同步整个库') !== -1);
     check('设置页有「打开传输面板」入口', settingsText.indexOf('打开传输面板') !== -1);
 
+    // 布局回归：说明块必须独占一整行，否则会被挤成竖排窄栏（用户截图反馈过）
+    check('动作行标记为可换行（.vault-bridge-actions-row）', hostEl.hasClass('vault-bridge-actions-row'));
+    check(
+      '状态说明块挂上了满宽类（.vault-bridge-actions-status）',
+      hostEl.hasDescendantClass('vault-bridge-actions-status')
+    );
+    const stylesCss = require_('node:fs').readFileSync(
+      require_('node:path').join(projectRoot, 'styles.css'),
+      'utf8'
+    );
+    check(
+      '样式表里说明块占满整行（flex: 1 0 100%）',
+      /\.vault-bridge-actions-status\s*\{[^}]*flex:\s*1 0 100%/.test(stylesCss)
+    );
+
     // 真的点一下「测试连接」：要把结果写回状态行，而不是静默失败
     const testButton = buttons.find((b) => b.label.indexOf('测试连接') === 0);
     check('「测试连接」绑定了点击处理', !!testButton && testButton.handlers.length > 0);

@@ -361,20 +361,19 @@ export class VaultBridgeSettingTab extends PluginSettingTab {
    * 如果这一页只有输入框，填完地址之后就没有任何东西能触发动作。
    */
   private renderClientActions(setting: Setting): void {
-    const status = setting.settingEl.createDiv({ cls: 'vault-bridge-status' });
-    const result = status.createDiv({
-      cls: 'vault-bridge-hint',
-      text: '尚未检查。「测试连接」会请求一次 /api/health，返回 200 说明地址与网络都通。',
-    });
+    // 设置行本身是 flex：说明块若不独占一整行，就会被挤在按钮右侧逐字竖排（手机端尤其明显）
+    setting.settingEl.addClass('vault-bridge-actions-row');
+    const status = setting.settingEl.createDiv({ cls: 'vault-bridge-actions-status' });
+    status.setText('尚未检查。「测试连接」会请求一次 /api/health，返回 200 说明地址与网络都通。');
 
     setting.addButton((button) =>
       button.setButtonText('测试连接（检查 200）').onClick(() => {
-        void this.checkClientConnection(result);
+        void this.checkClientConnection(status);
       })
     );
     setting.addButton((button) =>
       button.setButtonText('⬇ 一键同步整个库').onClick(() => {
-        void this.runWholeLibrarySync(result);
+        void this.runWholeLibrarySync(status);
       })
     );
     setting.addButton((button) =>

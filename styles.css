@@ -353,6 +353,26 @@
   min-height: 40px;
   font-weight: 600;
 }
+/* 设置页「连接检查与一键同步」：三个按钮 + 状态说明。
+   设置行默认是 flex 且不换行，追加的说明块会被压成一条竖排窄栏，
+   这里让该行可换行、说明块占满整行。 */
+.vault-bridge-actions-row {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.vault-bridge-actions-row .setting-item-control {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.vault-bridge-actions-status {
+  flex: 1 0 100%;
+  margin-top: 8px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  line-height: 1.6;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .vault-bridge-sync-hint {
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
