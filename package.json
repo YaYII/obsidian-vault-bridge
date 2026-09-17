@@ -1,0 +1,40 @@
+{
+  "name": "obsidian-vault-bridge",
+  "version": "1.0.0",
+  "description": "在电脑上开一个带授权保护的端口，手机通过 URL 上传/下载知识库文件",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "dev": "node esbuild.config.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "install:plugin": "node tools/install.mjs"
+  },
+  "keywords": [
+    "obsidian",
+    "plugin",
+    "vault",
+    "sync",
+    "lan",
+    "upload",
+    "download"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@vitest/coverage-v8": "^2.1.9",
+    "builtin-modules": "^4.0.0",
+    "esbuild": "^0.24.2",
+    "eslint": "^9.39.5",
+    "obsidian": "^1.7.2",
+    "prettier": "^3.9.7",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^2.1.8"
+  }
+}

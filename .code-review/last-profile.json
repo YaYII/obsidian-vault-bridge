@@ -1,0 +1,107 @@
+{
+  "engine": "v8-cpuprofile",
+  "totalMs": 4109.659,
+  "entries": [
+    {
+      "functionName": "(idle)",
+      "url": "(native)",
+      "line": 0,
+      "selfMs": 3324.884,
+      "selfPct": 80.9,
+      "totalMs": 3324.884,
+      "totalPct": 80.9,
+      "calls": 1
+    },
+    {
+      "functionName": "(anonymous)",
+      "url": "(native)",
+      "line": 8,
+      "selfMs": 146.758,
+      "selfPct": 3.6,
+      "totalMs": 146.758,
+      "totalPct": 3.6,
+      "calls": 1
+    },
+    {
+      "functionName": "(garbage collector)",
+      "url": "(native)",
+      "line": 0,
+      "selfMs": 140.435,
+      "selfPct": 3.4,
+      "totalMs": 140.435,
+      "totalPct": 3.4,
+      "calls": 1
+    },
+    {
+      "functionName": "E",
+      "url": "(native)",
+      "line": 969,
+      "selfMs": 139.875,
+      "selfPct": 3.4,
+      "totalMs": 139.875,
+      "totalPct": 3.4,
+      "calls": 1
+    },
+    {
+      "functionName": "(program)",
+      "url": "(native)",
+      "line": 0,
+      "selfMs": 112.335,
+      "selfPct": 2.7,
+      "totalMs": 112.335,
+      "totalPct": 2.7,
+      "calls": 1
+    },
+    {
+      "functionName": "writev",
+      "url": "(native)",
+      "line": 0,
+      "selfMs": 80.352,
+      "selfPct": 2,
+      "totalMs": 80.352,
+      "totalPct": 2,
+      "calls": 1
+    },
+    {
+      "functionName": "httpFetch",
+      "url": "node:internal/deps/undici/undici",
+      "line": 11074,
+      "selfMs": 51.593,
+      "selfPct": 1.3,
+      "totalMs": 51.593,
+      "totalPct": 1.3,
+      "calls": 1
+    },
+    {
+      "functionName": "runMicrotasks",
+      "url": "(native)",
+      "line": 0,
+      "selfMs": 44.071,
+      "selfPct": 1.1,
+      "totalMs": 44.071,
+      "totalPct": 1.1,
+      "calls": 1
+    },
+    {
+      "functionName": "_Request",
+      "url": "node:internal/deps/undici/undici",
+      "line": 9894,
+      "selfMs": 34.749,
+      "selfPct": 0.8,
+      "totalMs": 34.749,
+      "totalPct": 0.8,
+      "calls": 1
+    },
+    {
+      "functionName": "Q",
+      "url": "(native)",
+      "line": 8,
+      "selfMs": 34.607,
+      "selfPct": 0.8,
+      "totalMs": 34.607,
+      "totalPct": 0.8,
+      "calls": 1
+    }
+  ],
+  "note": "profiled tools/bench.mjs via node --cpu-prof"
+}

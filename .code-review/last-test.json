@@ -1,0 +1,9 @@
+{
+  "tool": "vitest",
+  "total": 160,
+  "passed": 160,
+  "failed": 0,
+  "skipped": 0,
+  "coveragePct": 42.88,
+  "durationMs": 4073
+}

@@ -1,0 +1,26 @@
+{
+  "command": "node tools/bench.mjs",
+  "cwd": "/home/as-workstation01/Documents/project/vault-bridge",
+  "iterations": 3,
+  "samples": [
+    {
+      "run": 1,
+      "durationMs": 7600,
+      "coldStart": true
+    },
+    {
+      "run": 2,
+      "durationMs": 5034
+    },
+    {
+      "run": 3,
+      "durationMs": 5795
+    }
+  ],
+  "meanMs": 5415,
+  "p50Ms": 5415,
+  "p90Ms": 5719,
+  "minMs": 5034,
+  "maxMs": 5795,
+  "peakRssMb": 158.9
+}

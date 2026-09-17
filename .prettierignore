@@ -1,0 +1,9 @@
+main.js
+node_modules
+.code-review
+coverage
+*.zip
+
+# HTML 是手写的界面模板：元素间的空白会影响渲染结果与内联脚本排版，
+# 交由人工维护，不参与自动格式化。
+src/server/*.html

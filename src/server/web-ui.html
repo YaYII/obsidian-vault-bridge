@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f766e" />
+    <title>Vault Bridge · 知识库桥</title>
+    <style>
+      :root {
+        --bg: #f6f7f9;
+        --card: #ffffff;
+        --text: #1c1e21;
+        --muted: #6b7280;
+        --line: #e5e7eb;
+        --accent: #0f766e;
+        --accent-soft: #ccfbf1;
+        --danger: #b91c1c;
+        --radius: 14px;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #14161a;
+          --card: #1e2126;
+          --text: #e8eaed;
+          --muted: #9aa0a6;
+          --line: #2c3036;
+          --accent: #2dd4bf;
+          --accent-soft: #134e4a;
+        }
+      }
+      * {
+        box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font:
+          16px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          'PingFang SC',
+          'Helvetica Neue',
+          'Microsoft YaHei',
+          sans-serif;
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: var(--card);
+        border-bottom: 1px solid var(--line);
+        padding: calc(env(safe-area-inset-top) + 10px) 14px 10px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .brand h1 {
+        font-size: 17px;
+        margin: 0;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+      }
+      .dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--muted);
+        margin-right: 6px;
+        vertical-align: middle;
+      }
+      .dot.on {
+        background: #16a34a;
+      }
+      .dot.off {
+        background: var(--danger);
+      }
+      .crumb {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .crumb a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      main {
+        flex: 1;
+        padding: 12px 14px calc(env(safe-area-inset-bottom) + 90px);
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        overflow: hidden;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 13px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+      .row:last-child {
+        border-bottom: none;
+      }
+      .row .ico {
+        width: 26px;
+        text-align: center;
+        font-size: 18px;
+        flex: none;
+      }
+      .row .meta {
+        flex: 1;
+        min-width: 0;
+      }
+      .row .name {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .row .sub {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+      .row .go {
+        color: var(--muted);
+        font-size: 20px;
+        flex: none;
+      }
+      .row.tap:active {
+        background: var(--accent-soft);
+      }
+      .empty,
+      .hint {
+        text-align: center;
+        color: var(--muted);
+        padding: 34px 16px;
+        font-size: 14px;
+      }
+      .bar {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 10;
+        background: var(--card);
+        border-top: 1px solid var(--line);
+        padding: 10px 14px calc(env(safe-area-inset-bottom) + 10px);
+        display: flex;
+        gap: 10px;
+      }
+      button,
+      .btn {
+        font: inherit;
+        font-size: 15px;
+        border-radius: 11px;
+        border: 1px solid var(--line);
+        background: var(--card);
+        color: var(--text);
+        padding: 11px 15px;
+        cursor: pointer;
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+      }
+      button:active {
+        transform: scale(0.98);
+      }
+      .primary {
+        background: var(--accent);
+        color: #fff;
+        border-color: var(--accent);
+        font-weight: 600;
+        flex: 1;
+      }
+      .primary:disabled {
+        opacity: 0.55;
+      }
+      .ghost {
+        flex: none;
+      }
+      input[type='password'],
+      input[type='text'] {
+        font: inherit;
+        width: 100%;
+        padding: 13px 14px;
+        border-radius: 11px;
+        border: 1px solid var(--line);
+        background: var(--card);
+        color: var(--text);
+        min-height: 44px;
+      }
+      .field {
+        margin-bottom: 12px;
+      }
+      .field label {
+        display: block;
+        font-size: 13px;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+      .status {
+        font-size: 13px;
+        color: var(--muted);
+        padding: 8px 2px;
+        min-height: 20px;
+      }
+      .status.err {
+        color: var(--danger);
+      }
+      .status.ok {
+        color: #16a34a;
+      }
+      .pad {
+        padding: 16px;
+      }
+      .progress {
+        height: 4px;
+        background: var(--line);
+        border-radius: 2px;
+        overflow: hidden;
+        margin-top: 10px;
+        display: none;
+      }
+      .progress > i {
+        display: block;
+        height: 100%;
+        width: 0;
+        background: var(--accent);
+        transition: width 0.15s;
+      }
+      .hidden {
+        display: none !important;
+      }
+      code {
+        background: var(--accent-soft);
+        padding: 2px 6px;
+        border-radius: 6px;
+        font-size: 13px;
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <h1><span id="dot" class="dot"></span>Vault Bridge</h1>
+        <button
+          id="btn-logout"
+          class="ghost hidden"
+          style="min-height: 34px; padding: 6px 12px; font-size: 13px"
+        >
+          切换令牌
+        </button>
+      </div>
+      <div id="crumb" class="crumb hidden"></div>
+    </header>
+
+    <main>
+      <!-- 未授权：输入令牌 -->
+      <section id="auth-view">
+        <div class="card pad">
+          <div class="field">
+            <label for="token">访问令牌</label>
+            <input
+              id="token"
+              type="password"
+              inputmode="text"
+              autocomplete="off"
+              autocapitalize="off"
+              autocorrect="off"
+              spellcheck="false"
+              placeholder="粘贴电脑端显示的令牌"
+            />
+          </div>
+          <button id="btn-connect" class="primary" style="width: 100%">连接电脑</button>
+          <div id="auth-status" class="status"></div>
+          <div class="hint" style="text-align: left; padding: 14px 0 0">
+            令牌在电脑端 Obsidian 的「Vault Bridge 设置」里查看。
+          </div>
+        </div>
+      </section>
+
+      <!-- 已授权：文件浏览 -->
+      <section id="files-view" class="hidden">
+        <div id="list" class="card"></div>
+        <div id="list-empty" class="empty hidden">这个文件夹是空的</div>
+      </section>
+    </main>
+
+    <!-- 底部操作条 -->
+    <div id="bar" class="bar hidden">
+      <button id="btn-up" class="ghost">↑ 上级</button>
+      <button id="btn-refresh" class="ghost">刷新</button>
+      <button id="btn-mkdir" class="ghost">新建</button>
+      <button id="btn-upload" class="primary">上传到此</button>
+    </div>
+    <input id="picker" type="file" multiple class="hidden" />
+
+    <script>
+      (function () {
+        'use strict';
+        var $ = function (id) {
+          return document.getElementById(id);
+        };
+        var state = { token: '', path: '', parent: null, busy: false };
+
+        // ── 令牌来源：URL 参数优先，其次 localStorage ──
+        function readTokenFromUrl() {
+          try {
+            var u = new URL(window.location.href);
+            var t = u.searchParams.get('token');
+            if (t) {
+              u.searchParams.delete('token');
+              window.history.replaceState(
+                {},
+                '',
+                u.pathname + (u.searchParams.toString() ? '?' + u.searchParams : '') + u.hash
+              );
+              return t;
+            }
+          } catch (e) {
+            /* 老浏览器忽略 */
+          }
+          return '';
+        }
+        function loadToken() {
+          var fromUrl = readTokenFromUrl();
+          if (fromUrl) {
+            try {
+              localStorage.setItem('vault-bridge-token', fromUrl);
+            } catch (e) {}
+            return fromUrl;
+          }
+          try {
+            return localStorage.getItem('vault-bridge-token') || '';
+          } catch (e) {
+            return '';
+          }
+        }
+        function saveToken(t) {
+          try {
+            localStorage.setItem('vault-bridge-token', t);
+          } catch (e) {}
+        }
+        function clearToken() {
+          try {
+            localStorage.removeItem('vault-bridge-token');
+          } catch (e) {}
+        }
+
+        function setStatus(el, text, kind) {
+          el.textContent = text || '';
+          el.className = 'status' + (kind ? ' ' + kind : '');
+        }
+        function setDot(on) {
+          $('dot').className = 'dot ' + (on ? 'on' : 'off');
+        }
+
+        /** 统一请求封装：自动带令牌、统一错误提示 */
+        function api(path, options) {
+          options = options || {};
+          var headers = options.headers || {};
+          headers['Authorization'] = 'Bearer ' + state.token;
+          return fetch(path, {
+            method: options.method || 'GET',
+            headers: headers,
+            body: options.body,
+            cache: 'no-store',
+          }).then(function (res) {
+            return res
+              .json()
+              .catch(function () {
+                return {};
+              })
+              .then(function (data) {
+                if (!res.ok) {
+                  var msg = (data && data.message) || 'HTTP ' + res.status;
+                  throw new Error(msg);
+                }
+                return data;
+              });
+          });
+        }
+
+        function showAuthView(message) {
+          $('auth-view').classList.remove('hidden');
+          $('files-view').classList.add('hidden');
+          $('bar').classList.add('hidden');
+          $('crumb').classList.add('hidden');
+          $('btn-logout').classList.add('hidden');
+          setDot(false);
+          if (message) setStatus($('auth-status'), message, 'err');
+        }
+
+        function showFilesView() {
+          $('auth-view').classList.add('hidden');
+          $('files-view').classList.remove('hidden');
+          $('bar').classList.remove('hidden');
+          $('crumb').classList.remove('hidden');
+          $('btn-logout').classList.remove('hidden');
+          setDot(true);
+        }
+
+        function connect(token) {
+          state.token = token;
+          setStatus($('auth-status'), '正在连接…');
+          return api('/api/verify')
+            .then(function () {
+              saveToken(token);
+              setStatus($('auth-status'), '');
+              showFilesView();
+              return loadList('');
+            })
+            .catch(function (err) {
+              showAuthView('连接失败：' + err.message);
+              throw err;
+            });
+        }
+
+        function renderCrumb() {
+          var el = $('crumb');
+          el.innerHTML = '';
+          var rootLink = document.createElement('a');
+          rootLink.href = '#';
+          rootLink.textContent = '🏠 根目录';
+          rootLink.onclick = function (e) {
+            e.preventDefault();
+            loadList('');
+          };
+          el.appendChild(rootLink);
+          if (!state.path) return;
+          var parts = state.path.split('/');
+          var acc = '';
+          parts.forEach(function (part) {
+            acc = acc ? acc + '/' + part : part;
+            var sep = document.createElement('span');
+            sep.textContent = '/';
+            el.appendChild(sep);
+            var link = document.createElement('a');
+            link.href = '#';
+            link.textContent = part;
+            (function (target) {
+              link.onclick = function (e) {
+                e.preventDefault();
+                loadList(target);
+              };
+            })(acc);
+            el.appendChild(link);
+          });
+        }
+
+        function humanSize(n) {
+          if (!n) return '0 B';
+          var u = ['B', 'KB', 'MB', 'GB'],
+            i = 0,
+            v = n;
+          while (v >= 1024 && i < u.length - 1) {
+            v /= 1024;
+            i++;
+          }
+          return (v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1)) + ' ' + u[i];
+        }
+        function humanTime(ms) {
+          if (!ms) return '';
+          var d = new Date(ms),
+            p = function (x) {
+              return x < 10 ? '0' + x : '' + x;
+            };
+          return (
+            d.getFullYear() +
+            '-' +
+            p(d.getMonth() + 1) +
+            '-' +
+            p(d.getDate()) +
+            ' ' +
+            p(d.getHours()) +
+            ':' +
+            p(d.getMinutes())
+          );
+        }
+
+        function loadList(path) {
+          setStatus($('auth-status'), '');
+          return api('/api/list?path=' + encodeURIComponent(path))
+            .then(function (data) {
+              state.path = data.path || '';
+              state.parent = data.parent;
+              renderCrumb();
+              renderList(data.entries || []);
+            })
+            .catch(function (err) {
+              if (/令牌|unauthorized|401/.test(err.message)) {
+                showAuthView('令牌已失效，请重新输入');
+              } else {
+                setStatus($('auth-status'), '加载失败：' + err.message, 'err');
+              }
+            });
+        }
+
+        function renderList(entries) {
+          var list = $('list');
+          list.innerHTML = '';
+          if (!entries.length) {
+            $('list-empty').classList.remove('hidden');
+            return;
+          }
+          $('list-empty').classList.add('hidden');
+
+          entries.forEach(function (entry) {
+            var row = document.createElement('div');
+            row.className = 'row tap';
+            var ico = document.createElement('div');
+            ico.className = 'ico';
+            ico.textContent = entry.kind === 'folder' ? '📁' : iconFor(entry.name);
+            var meta = document.createElement('div');
+            meta.className = 'meta';
+            var name = document.createElement('div');
+            name.className = 'name';
+            name.textContent = entry.name;
+            var sub = document.createElement('div');
+            sub.className = 'sub';
+            sub.textContent =
+              entry.kind === 'folder'
+                ? '文件夹'
+                : humanSize(entry.size) + (entry.mtime ? ' · ' + humanTime(entry.mtime) : '');
+            meta.appendChild(name);
+            meta.appendChild(sub);
+            var go = document.createElement('div');
+            go.className = 'go';
+            go.textContent = entry.kind === 'folder' ? '›' : '↓';
+            row.appendChild(ico);
+            row.appendChild(meta);
+            row.appendChild(go);
+            row.onclick = function () {
+              if (entry.kind === 'folder') loadList(entry.path);
+              else downloadFile(entry.path, entry.name);
+            };
+            list.appendChild(row);
+          });
+        }
+
+        function iconFor(name) {
+          var ext = (name.split('.').pop() || '').toLowerCase();
+          if (ext === 'md' || ext === 'txt') return '📝';
+          if (
+            ext === 'png' ||
+            ext === 'jpg' ||
+            ext === 'jpeg' ||
+            ext === 'gif' ||
+            ext === 'webp' ||
+            ext === 'svg'
+          )
+            return '🖼️';
+          if (ext === 'pdf') return '📕';
+          if (ext === 'zip') return '🗜️';
+          if (ext === 'canvas') return '🎨';
+          if (ext === 'json' || ext === 'csv' || ext === 'xlsx') return '📊';
+          return '📄';
+        }
+
+        /** 下载：用隐藏 iframe 触发浏览器原生下载，避免把大文件读进内存 */
+        function downloadFile(path, name) {
+          var url =
+            '/api/download?path=' + encodeURIComponent(path) + '&token=' + encodeURIComponent(state.token);
+          var a = document.createElement('a');
+          a.href = url;
+          a.download = name;
+          a.rel = 'noopener';
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(function () {
+            document.body.removeChild(a);
+          }, 1000);
+        }
+
+        function uploadFiles(files) {
+          if (!files || !files.length || state.busy) return;
+          state.busy = true;
+          var btn = $('btn-upload');
+          btn.disabled = true;
+          var total = files.length,
+            done = 0,
+            failed = 0;
+          var current = 0;
+
+          function next() {
+            if (current >= total) {
+              state.busy = false;
+              btn.disabled = false;
+              btn.textContent = '上传到此';
+              setStatus(
+                $('auth-status'),
+                '上传完成：成功 ' + (done - failed) + ' 个' + (failed ? '，失败 ' + failed + ' 个' : ''),
+                failed ? 'err' : 'ok'
+              );
+              loadList(state.path);
+              return;
+            }
+            var file = files[current];
+            var target = state.path ? state.path + '/' + file.name : file.name;
+            btn.textContent = '上传中 ' + (current + 1) + '/' + total;
+            fetch('/api/upload?path=' + encodeURIComponent(target), {
+              method: 'POST',
+              headers: { Authorization: 'Bearer ' + state.token, 'Content-Type': 'application/octet-stream' },
+              body: file,
+            })
+              .then(function (res) {
+                if (!res.ok) {
+                  failed++;
+                  return res
+                    .json()
+                    .catch(function () {
+                      return {};
+                    })
+                    .then(function (d) {
+                      throw new Error(d.message || res.status);
+                    });
+                }
+                done++;
+              })
+              .catch(function (err) {
+                console.warn('上传失败', file.name, err);
+              })
+              .then(function () {
+                current++;
+                next();
+              });
+          }
+          next();
+        }
+
+        // ── 事件绑定 ──
+        $('btn-connect').onclick = function () {
+          var t = $('token').value.trim();
+          if (!t) {
+            setStatus($('auth-status'), '请先粘贴令牌', 'err');
+            return;
+          }
+          connect(t).catch(function () {});
+        };
+        $('token').addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') $('btn-connect').click();
+        });
+        $('btn-logout').onclick = function () {
+          clearToken();
+          state.token = '';
+          $('token').value = '';
+          showAuthView('');
+        };
+        $('btn-refresh').onclick = function () {
+          loadList(state.path);
+        };
+        $('btn-up').onclick = function () {
+          if (state.parent === null || state.parent === undefined) {
+            setStatus($('auth-status'), '已经是根目录', '');
+            return;
+          }
+          loadList(state.parent);
+        };
+        $('btn-mkdir').onclick = function () {
+          var name = window.prompt('新建文件夹名称');
+          if (!name) return;
+          var target = state.path ? state.path + '/' + name.trim() : name.trim();
+          api('/api/mkdir?path=' + encodeURIComponent(target), { method: 'POST' })
+            .then(function () {
+              loadList(state.path);
+            })
+            .catch(function (err) {
+              setStatus($('auth-status'), '新建失败：' + err.message, 'err');
+            });
+        };
+        $('btn-upload').onclick = function () {
+          $('picker').click();
+        };
+        $('picker').onchange = function (e) {
+          uploadFiles(e.target.files);
+          e.target.value = '';
+        };
+
+        // ── 启动 ──
+        var token = loadToken();
+        if (token) {
+          $('token').value = token;
+          connect(token).catch(function () {});
+        } else {
+          showAuthView('');
+        }
+      })();
+    </script>
+  </body>
+</html>

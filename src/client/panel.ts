@@ -1,0 +1,613 @@
+/**
+ * 手机端传输面板：浏览电脑上的知识库并下载到本地，或把本地文件上传到电脑。
+ *
+ * 交互模型刻意做成「两边各一个浏览器」：
+ *   下载页签 —— 浏览的是电脑目录，下载后按相同相对路径落到本地下载目录，
+ *               这样 Obsidian 的双链、附件引用在手机上依然成立；
+ *   上传页签 —— 浏览的是手机目录，上传后按相同相对路径落到电脑的目标目录。
+ */
+
+import { ItemView, Notice, Platform, TFile, TFolder, WorkspaceLeaf, setIcon } from 'obsidian';
+import { BridgeClient, BridgeClientError, normalizeBaseUrl } from './api-client';
+import { formatBytes } from '../shared/format';
+import { parentOf } from '../shared/path';
+import { resolveDownloadTarget, resolveUploadTarget } from '../shared/transfer-path';
+import type { BridgeEntry } from '../shared/types';
+import type VaultBridgePlugin from '../main';
+
+export const VIEW_TYPE_BRIDGE_PANEL = 'vault-bridge-panel';
+
+type Tab = 'download' | 'upload';
+
+/** 面板的全部可变状态，渲染函数只读它 */
+interface PanelState {
+  tab: Tab;
+  /** 下载页签当前浏览的电脑目录 */
+  remotePath: string;
+  /** 上传页签当前浏览的手机目录 */
+  localPath: string;
+  remoteEntries: BridgeEntry[];
+  localEntries: BridgeEntry[];
+  connected: boolean;
+  /** 正在进行的操作描述，非空时禁用交互 */
+  busy: string;
+  lastMessage: string;
+  lastMessageKind: 'info' | 'ok' | 'err';
+}
+
+export class BridgePanel extends ItemView {
+  private state: PanelState = {
+    tab: 'download',
+    remotePath: '',
+    localPath: '',
+    remoteEntries: [],
+    localEntries: [],
+    connected: false,
+    busy: '',
+    lastMessage: '',
+    lastMessageKind: 'info',
+  };
+
+  constructor(
+    leaf: WorkspaceLeaf,
+    private readonly plugin: VaultBridgePlugin
+  ) {
+    super(leaf);
+  }
+
+  getViewType(): string {
+    return VIEW_TYPE_BRIDGE_PANEL;
+  }
+
+  getDisplayText(): string {
+    return 'Vault Bridge 传输';
+  }
+
+  getIcon(): string {
+    return 'arrow-left-right';
+  }
+
+  async onOpen(): Promise<void> {
+    await this.render();
+  }
+
+  /** 构造客户端；地址或令牌缺失时返回 null */
+  private buildClient(): BridgeClient | null {
+    const client = new BridgeClient(this.plugin.settings.clientServerUrl, this.plugin.settings.token);
+    return client.configured ? client : null;
+  }
+
+  /** 首次进入或切换设置后尝试连接一次 */
+  private async tryConnect(silent = true): Promise<void> {
+    const client = this.buildClient();
+    if (!client) {
+      this.state.connected = false;
+      if (!silent) new Notice('请先填写电脑地址');
+      return;
+    }
+    this.state.busy = '正在连接电脑…';
+    await this.render();
+    try {
+      await client.verify();
+      this.state.connected = true;
+      this.state.lastMessage = '已连接 ' + client.endpoint;
+      this.state.lastMessageKind = 'ok';
+      await this.refreshRemote();
+      await this.refreshLocal();
+    } catch (error) {
+      this.state.connected = false;
+      this.state.lastMessage = describeError(error);
+      this.state.lastMessageKind = 'err';
+    } finally {
+      this.state.busy = '';
+      await this.render();
+    }
+  }
+
+  /** 拉取电脑目录 */
+  private async refreshRemote(): Promise<void> {
+    const client = this.buildClient();
+    if (!client) return;
+    try {
+      const data = await client.list(this.state.remotePath);
+      this.state.remoteEntries = data.entries;
+      this.state.remotePath = data.path;
+    } catch (error) {
+      this.state.lastMessage = describeError(error);
+      this.state.lastMessageKind = 'err';
+    }
+  }
+
+  /** 读取手机本地目录（走 Obsidian Vault，自动跳过配置目录） */
+  private async refreshLocal(): Promise<void> {
+    const folderPath = this.state.localPath;
+    const node = folderPath ? this.app.vault.getAbstractFileByPath(folderPath) : this.app.vault.getRoot();
+    if (!(node instanceof TFolder)) {
+      this.state.localPath = '';
+      this.state.localEntries = this.readLocalEntries(this.app.vault.getRoot());
+      return;
+    }
+    this.state.localEntries = this.readLocalEntries(node);
+  }
+
+  private readLocalEntries(folder: TFolder): BridgeEntry[] {
+    const entries: BridgeEntry[] = [];
+    for (const child of folder.children) {
+      if (child.name === '.obsidian' || child.name === '.trash' || child.name === '.git') continue;
+      const isFolder = child instanceof TFolder;
+      entries.push({
+        name: child.name,
+        path: folder.path ? folder.path + '/' + child.name : child.name,
+        kind: isFolder ? 'folder' : 'file',
+        size: isFolder ? 0 : (child as TFile).stat.size,
+        mtime: isFolder ? 0 : (child as TFile).stat.mtime,
+      });
+    }
+    entries.sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1;
+      return a.name.localeCompare(b.name, 'zh-Hans-CN');
+    });
+    return entries;
+  }
+
+  // ───────────────────────────── 渲染 ─────────────────────────────
+
+  private async render(): Promise<void> {
+    const root = this.contentEl;
+    root.empty();
+    root.addClass('vault-bridge-panel');
+
+    this.renderHeader(root);
+    this.renderTabs(root);
+
+    const body = root.createDiv({ cls: 'vault-bridge-body' });
+    if (this.state.busy) {
+      body.createDiv({ cls: 'vault-bridge-busy', text: '⏳ ' + this.state.busy });
+    }
+
+    if (this.state.tab === 'download') {
+      this.renderRemoteBrowser(body);
+    } else {
+      this.renderLocalBrowser(body);
+    }
+
+    this.renderFooter(root);
+  }
+
+  private renderHeader(root: HTMLElement): void {
+    const header = root.createDiv({ cls: 'vault-bridge-header' });
+    const title = header.createDiv({ cls: 'vault-bridge-title' });
+    const dot = title.createSpan({ cls: 'vault-bridge-dot' + (this.state.connected ? ' is-on' : '') });
+    dot.setText(this.state.connected ? '●' : '○');
+    title.createSpan({ text: '电脑地址' });
+
+    const row = header.createDiv({ cls: 'vault-bridge-addr-row' });
+    const input = row.createEl('input', {
+      type: 'text',
+      cls: 'vault-bridge-input',
+      attr: {
+        placeholder: Platform.isDesktopApp ? 'http://127.0.0.1:8770' : 'http://192.168.1.44:8770',
+        value: this.plugin.settings.clientServerUrl,
+        autocapitalize: 'off',
+        autocorrect: 'off',
+        spellcheck: 'false',
+      },
+    });
+    input.addEventListener('change', () => {
+      void (async () => {
+        this.plugin.settings.clientServerUrl = normalizeBaseUrl(input.value);
+        await this.plugin.saveSettings();
+      })();
+    });
+
+    const connectBtn = row.createEl('button', { text: this.state.connected ? '重新连接' : '连接' });
+    connectBtn.addEventListener('click', () => {
+      void (async () => {
+        this.plugin.settings.clientServerUrl = normalizeBaseUrl(input.value);
+        await this.plugin.saveSettings();
+        await this.tryConnect(false);
+      })();
+    });
+  }
+
+  private renderTabs(root: HTMLElement): void {
+    const tabs = root.createDiv({ cls: 'vault-bridge-tabs' });
+
+    const downloadTab = tabs.createEl('button', { text: '⬇ 下载到手机' });
+    downloadTab.toggleClass('is-active', this.state.tab === 'download');
+    downloadTab.addEventListener('click', () => {
+      void (async () => {
+        this.state.tab = 'download';
+        await this.render();
+      })();
+    });
+
+    const uploadTab = tabs.createEl('button', { text: '⬆ 上传到电脑' });
+    uploadTab.toggleClass('is-active', this.state.tab === 'upload');
+    uploadTab.addEventListener('click', () => {
+      void (async () => {
+        this.state.tab = 'upload';
+        await this.render();
+      })();
+    });
+  }
+
+  /** 面包屑 + 条目列表的通用渲染 */
+  private renderBrowser(
+    body: HTMLElement,
+    options: {
+      label: string;
+      path: string;
+      entries: BridgeEntry[];
+      emptyText: string;
+      onNavigate: (path: string) => void;
+      onActivate: (entry: BridgeEntry) => void;
+      actionIcon: string;
+      actionTitle: string;
+    }
+  ): void {
+    const box = body.createDiv({ cls: 'vault-bridge-browser' });
+    box.createDiv({ cls: 'vault-bridge-section-label', text: options.label });
+
+    // 面包屑
+    const crumb = box.createDiv({ cls: 'vault-bridge-crumb' });
+    const rootLink = crumb.createEl('a', { text: '根目录' });
+    rootLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      options.onNavigate('');
+    });
+    if (options.path) {
+      let acc = '';
+      for (const part of options.path.split('/')) {
+        acc = acc ? acc + '/' + part : part;
+        crumb.createSpan({ text: ' / ' });
+        const link = crumb.createEl('a', { text: part });
+        const target = acc;
+        link.addEventListener('click', (e) => {
+          e.preventDefault();
+          options.onNavigate(target);
+        });
+      }
+    }
+
+    const parent = parentOf(options.path);
+    if (parent !== null) {
+      const up = box.createEl('button', { text: '↑ 返回上一级', cls: 'vault-bridge-up' });
+      up.addEventListener('click', () => options.onNavigate(parent));
+    }
+
+    if (options.entries.length === 0) {
+      box.createDiv({ cls: 'vault-bridge-empty', text: options.emptyText });
+      return;
+    }
+
+    const list = box.createDiv({ cls: 'vault-bridge-list' });
+    for (const entry of options.entries) {
+      const row = list.createDiv({ cls: 'vault-bridge-row' });
+      const icon = row.createSpan({ cls: 'vault-bridge-row-icon' });
+      icon.setText(entry.kind === 'folder' ? '📁' : '📄');
+
+      const meta = row.createDiv({ cls: 'vault-bridge-row-meta' });
+      meta.createDiv({ cls: 'vault-bridge-row-name', text: entry.name });
+      meta.createDiv({
+        cls: 'vault-bridge-row-sub',
+        text: entry.kind === 'folder' ? '文件夹' : formatBytes(entry.size),
+      });
+
+      const button = row.createEl('button', { cls: 'vault-bridge-row-action' });
+      setIcon(button, entry.kind === 'folder' ? 'folder-open' : options.actionIcon);
+      button.title = entry.kind === 'folder' ? '打开' : options.actionTitle;
+      button.disabled = this.state.busy.length > 0;
+      button.addEventListener('click', (e) => {
+        e.stopPropagation();
+        options.onActivate(entry);
+      });
+
+      // 整行也可点击：文件夹进目录，文件执行动作
+      row.addEventListener('click', () => {
+        if (this.state.busy) return;
+        if (entry.kind === 'folder') options.onNavigate(entry.path);
+        else options.onActivate(entry);
+      });
+      row.toggleClass('is-folder', entry.kind === 'folder');
+    }
+  }
+
+  private renderRemoteBrowser(body: HTMLElement): void {
+    this.renderBrowser(body, {
+      label: '电脑上的目录',
+      path: this.state.remotePath,
+      entries: this.state.remoteEntries,
+      emptyText: this.state.connected ? '这个文件夹是空的' : '尚未连接电脑',
+      onNavigate: (path) => {
+        void (async () => {
+          this.state.remotePath = path;
+          await this.refreshRemote();
+          await this.render();
+        })();
+      },
+      onActivate: (entry) => {
+        if (entry.kind === 'folder') {
+          void this.downloadFolder(entry);
+        } else {
+          void this.downloadFile(entry);
+        }
+      },
+      actionIcon: 'download',
+      actionTitle: '下载到手机',
+    });
+  }
+
+  private renderLocalBrowser(body: HTMLElement): void {
+    this.renderBrowser(body, {
+      label: '手机上的目录',
+      path: this.state.localPath,
+      entries: this.state.localEntries,
+      emptyText: '这个文件夹是空的',
+      onNavigate: (path) => {
+        void (async () => {
+          this.state.localPath = path;
+          await this.refreshLocal();
+          await this.render();
+        })();
+      },
+      onActivate: (entry) => {
+        if (entry.kind === 'folder') {
+          void this.uploadFolder(entry);
+        } else {
+          void this.uploadFile(entry);
+        }
+      },
+      actionIcon: 'upload',
+      actionTitle: '上传到电脑',
+    });
+  }
+
+  private renderFooter(root: HTMLElement): void {
+    const footer = root.createDiv({ cls: 'vault-bridge-footer' });
+
+    const targetRow = footer.createDiv({ cls: 'vault-bridge-target' });
+    if (this.state.tab === 'download') {
+      targetRow.createSpan({ text: '保存到手机：' });
+      const value = targetRow.createEl('code', {
+        text: this.plugin.settings.clientDownloadDir || '(vault 根目录)',
+      });
+      value.title = '在设置里修改';
+    } else {
+      targetRow.createSpan({ text: '上传到电脑：' });
+      const value = targetRow.createEl('code', {
+        text: this.plugin.settings.clientUploadDir || '(电脑 vault 根目录)',
+      });
+      value.title = '在设置里修改';
+    }
+
+    if (this.state.lastMessage) {
+      footer.createDiv({
+        cls: 'vault-bridge-message is-' + this.state.lastMessageKind,
+        text: this.state.lastMessage,
+      });
+    }
+
+    const actions = footer.createDiv({ cls: 'vault-bridge-footer-actions' });
+    const settingsBtn = actions.createEl('button', { text: '⚙ 设置' });
+    settingsBtn.addEventListener('click', () => {
+      this.plugin.openSettings();
+    });
+
+    const refreshBtn = actions.createEl('button', { text: '↻ 刷新' });
+    refreshBtn.addEventListener('click', () => {
+      void (async () => {
+        await this.refreshLocal();
+        if (this.state.connected) await this.refreshRemote();
+        await this.render();
+      })();
+    });
+  }
+
+  // ───────────────────────────── 动作 ─────────────────────────────
+
+  /** 计算下载到本地后的完整路径，保持与电脑端一致的相对结构 */
+  private localTargetPath(remotePath: string): string {
+    return resolveDownloadTarget(this.plugin.settings.clientDownloadDir, remotePath);
+  }
+
+  /** 计算上传到电脑后的完整路径 */
+  private remoteTargetPath(localPath: string): string {
+    return resolveUploadTarget(this.plugin.settings.clientUploadDir, localPath);
+  }
+
+  /** 确保本地父目录存在 */
+  private async ensureLocalFolder(filePath: string): Promise<void> {
+    const parent = parentOf(filePath);
+    if (!parent) return;
+    const existing = this.app.vault.getAbstractFileByPath(parent);
+    if (existing instanceof TFolder) return;
+    if (existing) throw new Error('同名文件已存在：' + parent);
+    await this.app.vault.createFolder(parent);
+  }
+
+  private async downloadFile(entry: BridgeEntry): Promise<void> {
+    const client = this.buildClient();
+    if (!client) {
+      new Notice('请先填写电脑地址并连接');
+      return;
+    }
+    this.state.busy = '正在下载 ' + entry.name;
+    await this.render();
+    try {
+      const data = await client.download(entry.path);
+      const target = this.localTargetPath(entry.path);
+      await this.ensureLocalFolder(target);
+      const existing = this.app.vault.getAbstractFileByPath(target);
+      if (existing instanceof TFile) {
+        await this.app.vault.modifyBinary(existing, data);
+      } else if (existing) {
+        throw new Error('本地存在同名文件夹：' + target);
+      } else {
+        await this.app.vault.createBinary(target, data);
+      }
+      this.state.lastMessage = '已下载 ' + entry.name + ' → ' + target;
+      this.state.lastMessageKind = 'ok';
+      new Notice('已下载：' + entry.name);
+    } catch (error) {
+      this.state.lastMessage = describeError(error);
+      this.state.lastMessageKind = 'err';
+    } finally {
+      this.state.busy = '';
+      await this.refreshLocal();
+      await this.render();
+    }
+  }
+
+  /** 递归下载整个文件夹 */
+  private async downloadFolder(entry: BridgeEntry): Promise<void> {
+    const client = this.buildClient();
+    if (!client) return;
+    this.state.busy = '正在读取 ' + entry.name + ' …';
+    await this.render();
+    try {
+      const files = await this.collectRemoteFiles(client, entry.path, 0);
+      if (files.length === 0) {
+        this.state.lastMessage = entry.name + ' 里没有文件';
+        this.state.lastMessageKind = 'info';
+        return;
+      }
+      let done = 0;
+      for (const file of files) {
+        this.state.busy = '下载 ' + (done + 1) + '/' + files.length + '：' + file.name;
+        await this.render();
+        const data = await client.download(file.path);
+        const target = this.localTargetPath(file.path);
+        await this.ensureLocalFolder(target);
+        const existing = this.app.vault.getAbstractFileByPath(target);
+        if (existing instanceof TFile) {
+          await this.app.vault.modifyBinary(existing, data);
+        } else if (!existing) {
+          await this.app.vault.createBinary(target, data);
+        }
+        done++;
+      }
+      this.state.lastMessage =
+        '已下载 ' + done + ' 个文件到 ' + (this.plugin.settings.clientDownloadDir || '根目录');
+      this.state.lastMessageKind = 'ok';
+      new Notice('已下载 ' + done + ' 个文件');
+    } catch (error) {
+      this.state.lastMessage = describeError(error);
+      this.state.lastMessageKind = 'err';
+    } finally {
+      this.state.busy = '';
+      await this.refreshLocal();
+      await this.render();
+    }
+  }
+
+  /** 递归收集远程文件列表，带数量上限防止误点整库 */
+  private async collectRemoteFiles(
+    client: BridgeClient,
+    path: string,
+    depth: number
+  ): Promise<BridgeEntry[]> {
+    if (depth > 12) return [];
+    const data = await client.list(path);
+    const files: BridgeEntry[] = [];
+    for (const item of data.entries) {
+      if (item.kind === 'file') {
+        files.push(item);
+      } else {
+        const nested = await this.collectRemoteFiles(client, item.path, depth + 1);
+        for (const file of nested) files.push(file);
+      }
+      if (files.length > 2000) break;
+    }
+    return files;
+  }
+
+  private async uploadFile(entry: BridgeEntry): Promise<void> {
+    const client = this.buildClient();
+    if (!client) {
+      new Notice('请先填写电脑地址并连接');
+      return;
+    }
+    const file = this.app.vault.getAbstractFileByPath(entry.path);
+    if (!(file instanceof TFile)) return;
+
+    this.state.busy = '正在上传 ' + entry.name;
+    await this.render();
+    try {
+      const data = await this.app.vault.readBinary(file);
+      const target = this.remoteTargetPath(entry.path);
+      const result = await client.upload(target, data);
+      this.state.lastMessage = (result.action === 'created' ? '已上传 ' : '已覆盖 ') + result.path;
+      this.state.lastMessageKind = 'ok';
+      new Notice('已上传：' + entry.name);
+      await this.refreshRemote();
+    } catch (error) {
+      this.state.lastMessage = describeError(error);
+      this.state.lastMessageKind = 'err';
+    } finally {
+      this.state.busy = '';
+      await this.render();
+    }
+  }
+
+  /** 递归上传整个文件夹 */
+  private async uploadFolder(entry: BridgeEntry): Promise<void> {
+    const client = this.buildClient();
+    if (!client) return;
+    const folder = this.app.vault.getAbstractFileByPath(entry.path);
+    if (!(folder instanceof TFolder)) return;
+
+    const files = this.collectLocalFiles(folder);
+    if (files.length === 0) {
+      this.state.lastMessage = entry.name + ' 里没有文件';
+      this.state.lastMessageKind = 'info';
+      await this.render();
+      return;
+    }
+
+    this.state.busy = '准备上传 ' + files.length + ' 个文件…';
+    await this.render();
+    let done = 0;
+    let failed = 0;
+    try {
+      for (const file of files) {
+        this.state.busy = '上传 ' + (done + failed + 1) + '/' + files.length + '：' + file.name;
+        await this.render();
+        try {
+          const data = await this.app.vault.readBinary(file);
+          await client.upload(this.remoteTargetPath(file.path), data);
+          done++;
+        } catch {
+          failed++;
+        }
+      }
+      this.state.lastMessage = '上传完成：成功 ' + done + ' 个' + (failed ? '，失败 ' + failed + ' 个' : '');
+      this.state.lastMessageKind = failed ? 'err' : 'ok';
+      new Notice('已上传 ' + done + ' 个文件');
+      await this.refreshRemote();
+    } finally {
+      this.state.busy = '';
+      await this.render();
+    }
+  }
+
+  private collectLocalFiles(folder: TFolder): TFile[] {
+    const files: TFile[] = [];
+    for (const child of folder.children) {
+      if (child instanceof TFile) {
+        files.push(child);
+      } else if (child instanceof TFolder) {
+        if (child.name === '.obsidian' || child.name === '.trash' || child.name === '.git') continue;
+        for (const nested of this.collectLocalFiles(child)) files.push(nested);
+      }
+    }
+    return files;
+  }
+}
+
+/** 把各类异常翻译成用户能看懂的一句话 */
+function describeError(error: unknown): string {
+  if (error instanceof BridgeClientError) return error.message;
+  if (error instanceof Error) return error.message;
+  return String(error);
+}

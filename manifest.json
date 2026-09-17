@@ -1,0 +1,10 @@
+{
+  "id": "vault-bridge",
+  "name": "Vault Bridge",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "电脑端开放带令牌授权的端口，手机通过 URL 上传/下载知识库文件。",
+  "author": "YaYII",
+  "authorUrl": "https://github.com/YaYII",
+  "isDesktopOnly": false
+}

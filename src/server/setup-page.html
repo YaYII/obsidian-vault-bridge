@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f766e" />
+    <title>手机安装指南 · Vault Bridge</title>
+    <style>
+      :root {
+        --bg: #f6f7f9;
+        --card: #fff;
+        --text: #1c1e21;
+        --muted: #6b7280;
+        --line: #e5e7eb;
+        --accent: #0f766e;
+        --accent-soft: #ccfbf1;
+        --radius: 14px;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #14161a;
+          --card: #1e2126;
+          --text: #e8eaed;
+          --muted: #9aa0a6;
+          --line: #2c3036;
+          --accent: #2dd4bf;
+          --accent-soft: #134e4a;
+        }
+      }
+      * {
+        box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          16px/1.6 -apple-system,
+          BlinkMacSystemFont,
+          'PingFang SC',
+          'Helvetica Neue',
+          'Microsoft YaHei',
+          sans-serif;
+        padding: calc(env(safe-area-inset-top) + 20px) 16px calc(env(safe-area-inset-bottom) + 40px);
+      }
+      h1 {
+        font-size: 21px;
+        margin: 0 0 6px;
+      }
+      .lead {
+        color: var(--muted);
+        font-size: 14px;
+        margin-bottom: 20px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      .card h2 {
+        font-size: 16px;
+        margin: 0 0 4px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .badge {
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+      .card .sub {
+        color: var(--muted);
+        font-size: 13px;
+        margin-bottom: 12px;
+      }
+      .kv {
+        font-size: 13px;
+        margin: 8px 0;
+        word-break: break-all;
+      }
+      .kv b {
+        color: var(--muted);
+        font-weight: 500;
+        display: block;
+        margin-bottom: 3px;
+      }
+      code {
+        background: var(--accent-soft);
+        padding: 5px 8px;
+        border-radius: 8px;
+        font-size: 13px;
+        display: inline-block;
+        word-break: break-all;
+        line-height: 1.5;
+      }
+      a.btn,
+      button.btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        width: 100%;
+        min-height: 50px;
+        margin-top: 12px;
+        padding: 13px 16px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--card);
+        color: var(--text);
+        font: inherit;
+        font-size: 16px;
+        text-decoration: none;
+        cursor: pointer;
+      }
+      a.btn.primary,
+      button.btn.primary {
+        background: var(--accent);
+        color: #fff;
+        border-color: var(--accent);
+        font-weight: 600;
+      }
+      a.btn:active,
+      button.btn:active {
+        transform: scale(0.985);
+      }
+      ol {
+        padding-left: 22px;
+        margin: 10px 0 0;
+        font-size: 14px;
+      }
+      ol li {
+        margin-bottom: 9px;
+      }
+      ol li b {
+        color: var(--accent);
+      }
+      .note {
+        font-size: 13px;
+        color: var(--muted);
+        background: var(--bg);
+        border-radius: 10px;
+        padding: 11px 13px;
+        margin-top: 12px;
+        line-height: 1.65;
+      }
+      .warn {
+        color: #b45309;
+      }
+      .footer {
+        text-align: center;
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>手机安装指南</h1>
+    <div class="lead">两种方式任选其一，第一种立刻能用，第二种体验更好。</div>
+
+    <div class="card">
+      <h2>方式一 · 手机浏览器 <span class="badge">推荐先试</span></h2>
+      <div class="sub">不用装任何东西，打开网页就能上传下载，功能与插件版一致。</div>
+      <div class="kv"><b>访问地址</b><code id="origin">读取中…</code></div>
+      <div class="kv"><b>访问令牌</b><code id="token">未携带</code></div>
+      <a class="btn primary" id="open-web" href="/">打开传输页面</a>
+      <div class="note">
+        把这个页面加入主屏幕（Safari 分享 → 添加到主屏幕），下次点图标即可使用，和 App 一样。
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>方式二 · Obsidian 手机插件</h2>
+      <div class="sub">在手机上用 Obsidian 原生界面传文件，下载的文件会直接进 vault。</div>
+
+      <a class="btn primary" id="download-zip" href="#">⬇ 下载插件安装包（zip）</a>
+
+      <ol>
+        <li>点上面的按钮下载 <code>vault-bridge-plugin.zip</code>，选择「<b>存储到"文件"</b>」。</li>
+        <li>
+          在「文件」App 里找到它，<b>轻点一次</b>自动解压出 3 个文件（main.js、manifest.json、styles.css）。
+        </li>
+        <li>
+          进入你手机 vault 的目录：<code>…/&lt;你的库名&gt;/.obsidian/plugins/</code><br />
+          没有 <code>plugins</code> 或 <code>vault-bridge</code> 文件夹就新建一个，名字必须完全一致。
+        </li>
+        <li>把解压出的 3 个文件<b>移动</b>进 <code>vault-bridge</code> 文件夹。</li>
+        <li>
+          回到 Obsidian → 设置 → <b>第三方插件</b>（先关闭"受限模式"）→ 已安装插件里打开 <b>Vault Bridge</b>。
+        </li>
+        <li>点左侧边栏的 ⇄ 图标（或命令面板搜 "Vault Bridge"）打开传输面板，填入上方地址与令牌。</li>
+      </ol>
+
+      <div class="note warn">
+        提示：iOS 的「文件」App 能看到以点开头的 <code>.obsidian</code> 文件夹，直接进去即可；
+        若找不到，请确认在「我的 iPhone / Obsidian」或「iCloud 云盘 / Obsidian」下， 而不是在"最近使用"里。
+      </div>
+    </div>
+
+    <div class="footer">Vault Bridge · 电脑端服务已就绪</div>
+
+    <script>
+      (function () {
+        var token = '';
+        try {
+          var u = new URL(window.location.href);
+          token = u.searchParams.get('token') || '';
+        } catch (e) {}
+        if (!token) {
+          try {
+            token = localStorage.getItem('vault-bridge-token') || '';
+          } catch (e) {}
+        }
+
+        document.getElementById('origin').textContent = window.location.origin;
+
+        var tokenEl = document.getElementById('token');
+        if (token) {
+          tokenEl.textContent = token;
+          tokenEl.style.cursor = 'pointer';
+          tokenEl.title = '点击复制';
+          tokenEl.onclick = function () {
+            navigator.clipboard
+              .writeText(token)
+              .then(function () {
+                tokenEl.textContent = '已复制 ✓';
+                setTimeout(function () {
+                  tokenEl.textContent = token;
+                }, 1200);
+              })
+              .catch(function () {});
+          };
+        } else {
+          tokenEl.textContent = '（请在电脑端开启带令牌的链接访问本页）';
+        }
+
+        var query = token ? '?token=' + encodeURIComponent(token) : '';
+        document.getElementById('open-web').setAttribute('href', '/' + query);
+        document.getElementById('download-zip').setAttribute('href', '/setup/plugin.zip' + query);
+      })();
+    </script>
+  </body>
+</html>
