@@ -289,3 +289,54 @@
   width: 320px;
   max-width: 100%;
 }
+
+/* ── 连接历史：手机与桌面都常用，点击区域要够大 ── */
+.vault-bridge-history {
+  margin-top: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  overflow: hidden;
+}
+.vault-bridge-history-empty {
+  padding: 12px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+.vault-bridge-history-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--background-modifier-border);
+  min-height: 52px;
+}
+.vault-bridge-history-row:last-child { border-bottom: none; }
+.vault-bridge-history-row:active { background: var(--background-modifier-hover); }
+.vault-bridge-history-info { flex: 1; min-width: 0; }
+.vault-bridge-history-label { font-size: var(--font-ui-small); font-weight: 600; }
+.vault-bridge-history-url {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vault-bridge-history-meta {
+  flex: none;
+  text-align: right;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+.vault-bridge-history-remove {
+  flex: none;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--text-faint);
+}
+.vault-bridge-history-remove:hover { color: var(--text-error); }
+.vault-bridge-history-toggle { flex: none; }

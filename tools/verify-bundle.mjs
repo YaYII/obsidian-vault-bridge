@@ -212,6 +212,23 @@ async function main() {
   check('网页内含上传入口', html.indexOf('上传到此') !== -1);
   check('网页内含文件列表容器', html.indexOf('id="list"') !== -1);
 
+  // ── 子路径部署（如 nginx 把插件挂在 /obs/ 下）──
+  const prefixed = await fetch(base + '/', { headers: { 'x-forwarded-prefix': '/obs' } });
+  const prefixedHtml = await prefixed.text();
+  check('代理注入前缀后，页面请求带上该前缀', prefixedHtml.indexOf("BASE = '/obs'") !== -1);
+
+  const plain = await fetch(base + '/');
+  const plainHtml = await plain.text();
+  check('直连（无前缀）时页面不加前缀', plainHtml.indexOf("BASE = ''") !== -1);
+
+  // 前缀是外部输入，必须挡住借它注入脚本的可能
+  const evil = await fetch(base + '/', {
+    headers: { 'x-forwarded-prefix': '/x"><script>alert(1)</script>' },
+  });
+  const evilHtml = await evil.text();
+  check('非法前缀被拒绝（防脚本注入）', evilHtml.indexOf('alert(1)') === -1);
+  check('非法前缀时回退为无前缀', evilHtml.indexOf("BASE = ''") !== -1);
+
   section('④ 局域网可达性（手机就是走这条路）');
   const addresses = lanAddresses(port);
   if (addresses.length === 0) {

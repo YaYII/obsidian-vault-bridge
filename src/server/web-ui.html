@@ -324,6 +324,11 @@
         };
         var state = { token: '', path: '', parent: null, busy: false };
 
+  // 部署前缀：插件可能被反向代理挂在子路径下（如 /obs/）。
+  // 由服务端读取 X-Forwarded-Prefix 后注入；直连时为空串。
+  var BASE = '__VB_BASE__';
+  function withBase(path) { return BASE + path; }
+
         // ── 令牌来源：URL 参数优先，其次 localStorage ──
         function readTokenFromUrl() {
           try {
@@ -381,7 +386,7 @@
           options = options || {};
           var headers = options.headers || {};
           headers['Authorization'] = 'Bearer ' + state.token;
-          return fetch(path, {
+          return fetch(withBase(path), {
             method: options.method || 'GET',
             headers: headers,
             body: options.body,
@@ -581,7 +586,8 @@
         /** 下载：用隐藏 iframe 触发浏览器原生下载，避免把大文件读进内存 */
         function downloadFile(path, name) {
           var url =
-            '/api/download?path=' + encodeURIComponent(path) + '&token=' + encodeURIComponent(state.token);
+            withBase('/api/download') +
+            '?path=' + encodeURIComponent(path) + '&token=' + encodeURIComponent(state.token);
           var a = document.createElement('a');
           a.href = url;
           a.download = name;
@@ -619,7 +625,7 @@
             var file = files[current];
             var target = state.path ? state.path + '/' + file.name : file.name;
             btn.textContent = '上传中 ' + (current + 1) + '/' + total;
-            fetch('/api/upload?path=' + encodeURIComponent(target), {
+            fetch(withBase('/api/upload') + '?path=' + encodeURIComponent(target), {
               method: 'POST',
               headers: { Authorization: 'Bearer ' + state.token, 'Content-Type': 'application/octet-stream' },
               body: file,

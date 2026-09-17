@@ -5,6 +5,7 @@ import { DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_PORT, DEFAULT_EXCLUDED_DIRS } from '.
 import { generateToken } from './shared/token';
 import { formatTime } from './shared/format';
 import { listListenAddresses } from './server/net';
+import { MAX_PROFILES, inferProfileLabel, type ServerProfile } from './shared/server-profile';
 import type VaultBridgePlugin from './main';
 
 /** 持久化到 data.json 的设置 */
@@ -27,6 +28,16 @@ export interface VaultBridgeSettings {
   keepAccessLog: boolean;
   /** 手机端保存的电脑地址（在手机上填写，电脑端不用） */
   clientServerUrl: string;
+  /**
+   * 连接档案：曾经连通过的「地址 + 令牌」，按最近使用排序。
+   *
+   * 存在的理由：手机要连的地址不止一个——在家是局域网 IP，出门是公网隧道域名，
+   * 而隧道域名每次重建都会变；令牌又是 32 位随机串。
+   * 把两者一起存下来，换网络时直接选一条即可，不必每次手输。
+   *
+   * 注意其中的 token 是【电脑的】访问令牌，与顶层 token（本机服务端令牌）不是一回事。
+   */
+  serverProfiles: ServerProfile[];
   /** 手机端默认下载到本地的目录 */
   clientDownloadDir: string;
   /** 手机端默认上传到电脑的目录 */
@@ -45,6 +56,7 @@ export const DEFAULT_SETTINGS: VaultBridgeSettings = {
   clientServerUrl: '',
   clientDownloadDir: 'VaultBridge下载',
   clientUploadDir: '',
+  serverProfiles: [],
 };
 
 /** 把逗号分隔的设置项拆成数组并去空白 */
@@ -74,6 +86,26 @@ export function normalizeSettings(raw: Partial<VaultBridgeSettings> | null | und
     merged.clientDownloadDir = DEFAULT_SETTINGS.clientDownloadDir;
   if (typeof merged.clientUploadDir !== 'string') merged.clientUploadDir = DEFAULT_SETTINGS.clientUploadDir;
   if (typeof merged.clientServerUrl !== 'string') merged.clientServerUrl = '';
+
+  // 清洗连接档案：丢掉结构损坏的条目，补齐缺失字段，并按上限裁剪。
+  // 这些数据可能来自旧版本或被手工编辑过的 data.json，不能让它们把设置页搞崩。
+  const rawProfiles: unknown = (merged as { serverProfiles?: unknown }).serverProfiles;
+  merged.serverProfiles = (Array.isArray(rawProfiles) ? rawProfiles : [])
+    .filter((item): item is Partial<ServerProfile> => !!item && typeof item === 'object')
+    .map((item) => {
+      const url = typeof item.url === 'string' ? item.url.trim() : '';
+      return {
+        url,
+        token: typeof item.token === 'string' ? item.token : '',
+        label: typeof item.label === 'string' && item.label.trim() ? item.label : inferProfileLabel(url),
+        lastUsedAt:
+          typeof item.lastUsedAt === 'number' && Number.isFinite(item.lastUsedAt) ? item.lastUsedAt : 0,
+      };
+    })
+    .filter((item) => item.url.length > 0)
+    .sort((a, b) => b.lastUsedAt - a.lastUsedAt)
+    .slice(0, MAX_PROFILES);
+
   return merged;
 }
 

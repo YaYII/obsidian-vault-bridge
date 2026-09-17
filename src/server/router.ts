@@ -93,6 +93,26 @@ function errorResponse(status: number, error: string, message: string): BridgeRe
   return jsonResponse(status, payload);
 }
 
+/**
+ * 把反向代理的部署前缀注入页面。
+ *
+ * 插件既可能被直接访问（前缀为空），也可能挂在子路径下（如 nginx 的 /obs/）。
+ * 页面里的请求必须带上该前缀，否则会打到域名根路径而 404。
+ * 前缀来自代理注入的 X-Forwarded-Prefix —— 它是外部输入，因此严格校验字符集，
+ * 只接受形如 /obs 的路径，杜绝把任意文本注入到页面脚本里的可能。
+ */
+const BASE_PREFIX_PATTERN = new RegExp('^/[A-Za-z0-9._-]*$');
+const TRAILING_SLASHES = new RegExp('/+$');
+
+function injectBase(html: string, headers: Record<string, string | string[] | undefined>): string {
+  const raw = headers['x-forwarded-prefix'];
+  const value = String((Array.isArray(raw) ? raw[0] : raw) || '').trim();
+  // 用 RegExp 构造形式而不是正则字面量：这个文件是通过脚本改写的，
+  // 字面量里的反斜杠会经历多层字符串转义而被吃掉，构造形式没有这个风险。
+  const safe = BASE_PREFIX_PATTERN.test(value) ? value.replace(TRAILING_SLASHES, '') : '';
+  return html.split('__VB_BASE__').join(safe);
+}
+
 function htmlResponse(status: number, html: string): BridgeResponse {
   return {
     status,
@@ -196,7 +216,7 @@ async function route(
   // 否则用户第一次拿到地址却还没配令牌时会卡在这里。
   if (pathname === ROUTES.setup && method === 'GET') {
     setAction('打开手机安装指引');
-    return htmlResponse(200, renderSetupPage());
+    return htmlResponse(200, injectBase(renderSetupPage(), req.headers));
   }
 
   // 手机浏览器打开根路径时，没有令牌就渲染「输入令牌」页面，而不是干巴巴的 401
@@ -204,10 +224,10 @@ async function route(
     const auth = ctx.guard.verify(provided, req.ip);
     if (!auth.ok) {
       setAction('打开网页（未授权）');
-      return htmlResponse(200, renderWebUi({ authenticated: false }));
+      return htmlResponse(200, injectBase(renderWebUi(), req.headers));
     }
     setAction('打开网页');
-    return htmlResponse(200, renderWebUi({ authenticated: true }));
+    return htmlResponse(200, injectBase(renderWebUi(), req.headers));
   }
 
   const auth = ctx.guard.verify(provided, req.ip);

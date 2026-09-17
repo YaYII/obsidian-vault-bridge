@@ -7,15 +7,13 @@
 
 import template from './web-ui.html';
 
-/** 页面里唯一需要动态注入的占位符 */
-const VERSION_PLACEHOLDER = '__VB_VERSION__';
-
 /**
  * 渲染手机端网页。
+ *
  * 服务端不判断是否已授权——令牌校验由页面自身的脚本完成，
  * 这样一份 HTML 可以安全地缓存在任意设备上。
+ * 部署前缀（被反向代理挂在子路径时）由路由层注入，见 router.ts 的 injectBase。
  */
-export function renderWebUi(options: { authenticated?: boolean } = {}): string {
-  void options;
-  return template.split(VERSION_PLACEHOLDER).join('1.0.0');
+export function renderWebUi(): string {
+  return template;
 }

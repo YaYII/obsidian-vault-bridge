@@ -13,6 +13,14 @@ import { formatBytes } from '../shared/format';
 import { parentOf } from '../shared/path';
 import { resolveDownloadTarget, resolveUploadTarget } from '../shared/transfer-path';
 import type { BridgeEntry } from '../shared/types';
+import {
+  findProfile,
+  forgetProfile,
+  formatRelativeTime,
+  maskProfileToken,
+  rememberProfile,
+  type ServerProfile,
+} from '../shared/server-profile';
 import type VaultBridgePlugin from '../main';
 
 export const VIEW_TYPE_BRIDGE_PANEL = 'vault-bridge-panel';
@@ -33,6 +41,10 @@ interface PanelState {
   busy: string;
   lastMessage: string;
   lastMessageKind: 'info' | 'ok' | 'err';
+  /** 待连接的电脑访问令牌（与档案同步，连接成功后写回历史） */
+  serverToken: string;
+  /** 是否展开历史记录列表 */
+  showHistory: boolean;
 }
 
 export class BridgePanel extends ItemView {
@@ -46,6 +58,8 @@ export class BridgePanel extends ItemView {
     busy: '',
     lastMessage: '',
     lastMessageKind: 'info',
+    serverToken: '',
+    showHistory: false,
   };
 
   constructor(
@@ -68,12 +82,28 @@ export class BridgePanel extends ItemView {
   }
 
   async onOpen(): Promise<void> {
+    // 打开面板时把当前地址对应的令牌带出来，用户通常不必重输
+    this.state.serverToken = this.currentConnection().token;
     await this.render();
   }
 
   /** 构造客户端；地址或令牌缺失时返回 null */
+  /**
+   * 当前连接信息。
+   *
+   * 令牌优先取面板里已填的值，其次取该地址在历史档案里的记录；
+   * 都没有时回退到本机令牌——旧版本就是这么连的（vault 连同 data.json 一起同步的场景）。
+   */
+  private currentConnection(): { url: string; token: string } {
+    const url = this.plugin.settings.clientServerUrl;
+    const profile = findProfile(this.plugin.settings.serverProfiles, url);
+    const token = this.state.serverToken || (profile ? profile.token : '') || this.plugin.settings.token;
+    return { url, token };
+  }
+
   private buildClient(): BridgeClient | null {
-    const client = new BridgeClient(this.plugin.settings.clientServerUrl, this.plugin.settings.token);
+    const { url, token } = this.currentConnection();
+    const client = new BridgeClient(url, token);
     return client.configured ? client : null;
   }
 
@@ -92,6 +122,16 @@ export class BridgePanel extends ItemView {
       this.state.connected = true;
       this.state.lastMessage = '已连接 ' + client.endpoint;
       this.state.lastMessageKind = 'ok';
+
+      // 连接成功即写入历史：地址与令牌一起记下，换网络时直接选，不必手输
+      this.plugin.settings.clientServerUrl = client.endpoint;
+      this.plugin.settings.serverProfiles = rememberProfile(
+        this.plugin.settings.serverProfiles,
+        client.endpoint,
+        this.currentConnection().token
+      );
+      await this.plugin.saveSettings();
+
       await this.refreshRemote();
       await this.refreshLocal();
     } catch (error) {
@@ -185,8 +225,9 @@ export class BridgePanel extends ItemView {
     const title = header.createDiv({ cls: 'vault-bridge-title' });
     const dot = title.createSpan({ cls: 'vault-bridge-dot' + (this.state.connected ? ' is-on' : '') });
     dot.setText(this.state.connected ? '●' : '○');
-    title.createSpan({ text: '电脑地址' });
+    title.createSpan({ text: this.state.connected ? '已连接' : '电脑地址' });
 
+    // 第一行：地址 + 历史记录入口
     const row = header.createDiv({ cls: 'vault-bridge-addr-row' });
     const input = row.createEl('input', {
       type: 'text',
@@ -206,14 +247,104 @@ export class BridgePanel extends ItemView {
       })();
     });
 
-    const connectBtn = row.createEl('button', { text: this.state.connected ? '重新连接' : '连接' });
+    const historyBtn = row.createEl('button', {
+      text: this.state.showHistory ? '收起' : '历史',
+      cls: 'vault-bridge-history-toggle',
+    });
+    historyBtn.title = '选择之前连接过的地址与令牌，不必每次手输';
+    historyBtn.addEventListener('click', () => {
+      this.state.showHistory = !this.state.showHistory;
+      void this.render();
+    });
+
+    // 第二行：令牌 + 连接。令牌单独一行，手机上才看得清、也方便点按。
+    const tokenRow = header.createDiv({ cls: 'vault-bridge-addr-row' });
+    const tokenInput = tokenRow.createEl('input', {
+      type: 'password',
+      cls: 'vault-bridge-input',
+      attr: {
+        placeholder: '电脑的访问令牌',
+        value: this.state.serverToken,
+        autocapitalize: 'off',
+        autocorrect: 'off',
+        spellcheck: 'false',
+      },
+    });
+    tokenInput.addEventListener('change', () => {
+      this.state.serverToken = tokenInput.value.trim();
+    });
+
+    const connectBtn = tokenRow.createEl('button', {
+      text: this.state.connected ? '重新连接' : '连接',
+    });
     connectBtn.addEventListener('click', () => {
       void (async () => {
         this.plugin.settings.clientServerUrl = normalizeBaseUrl(input.value);
+        this.state.serverToken = tokenInput.value.trim();
         await this.plugin.saveSettings();
         await this.tryConnect(false);
       })();
     });
+
+    if (this.state.showHistory) {
+      this.renderHistoryList(header);
+    }
+  }
+
+  /**
+   * 历史连接记录。
+   * 点一条即切换地址与令牌并尝试连接；右侧 ✕ 删除不再需要的记录。
+   */
+  private renderHistoryList(parent: HTMLElement): void {
+    const profiles = this.plugin.settings.serverProfiles;
+    const box = parent.createDiv({ cls: 'vault-bridge-history' });
+
+    if (profiles.length === 0) {
+      box.createDiv({
+        cls: 'vault-bridge-history-empty',
+        text: '还没有历史记录。成功连接一次后，地址与令牌会自动记在这里。',
+      });
+      return;
+    }
+
+    for (const profile of profiles) {
+      const item = box.createDiv({ cls: 'vault-bridge-history-row' });
+
+      const info = item.createDiv({ cls: 'vault-bridge-history-info' });
+      info.createDiv({ cls: 'vault-bridge-history-label', text: profile.label });
+      info.createDiv({ cls: 'vault-bridge-history-url', text: profile.url });
+
+      const meta = item.createDiv({ cls: 'vault-bridge-history-meta' });
+      meta.createDiv({ text: formatRelativeTime(profile.lastUsedAt) });
+      meta.createDiv({ text: maskProfileToken(profile.token) });
+
+      const remove = item.createEl('button', { cls: 'vault-bridge-history-remove', text: '✕' });
+      remove.title = '删除这条记录';
+      remove.addEventListener('click', (event) => {
+        event.stopPropagation();
+        void this.removeProfile(profile.url);
+      });
+
+      item.addEventListener('click', () => {
+        void this.applyProfile(profile);
+      });
+    }
+  }
+
+  /** 选中一条历史：填入地址与令牌后立即尝试连接 */
+  private async applyProfile(profile: ServerProfile): Promise<void> {
+    this.plugin.settings.clientServerUrl = profile.url;
+    this.state.serverToken = profile.token;
+    this.state.showHistory = false;
+    await this.plugin.saveSettings();
+    await this.tryConnect(false);
+  }
+
+  /** 删除一条历史记录 */
+  private async removeProfile(url: string): Promise<void> {
+    this.plugin.settings.serverProfiles = forgetProfile(this.plugin.settings.serverProfiles, url);
+    await this.plugin.saveSettings();
+    await this.render();
   }
 
   private renderTabs(root: HTMLElement): void {

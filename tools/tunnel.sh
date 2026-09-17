@@ -43,8 +43,12 @@ cmd_start() {
   echo "▶ 正在建立隧道 → http://localhost:$PORT"
   : > "$LOG"
   # --protocol http2 在 UDP 受限的网络里更稳
-  nohup "$CLOUDFLARED" tunnel --url "http://localhost:$PORT" \
-    --no-autoupdate --protocol http2 > "$LOG" 2>&1 &
+  # setsid 让隧道脱离当前进程组：否则启动它的 shell 一退出，
+  # 整个进程组会被回收，隧道刚注册上连接就被杀掉（实测 2 秒后即 "no more connections active"）。
+  # 与 ~/bin/dsh-public.sh 起常驻进程的方式保持一致。
+  setsid nohup "$CLOUDFLARED" tunnel --url "http://localhost:$PORT" \
+    --no-autoupdate --protocol http2 > "$LOG" 2>&1 < /dev/null &
+  disown 2>/dev/null || true
   echo $! > "$PIDFILE"
 
   local url="" i

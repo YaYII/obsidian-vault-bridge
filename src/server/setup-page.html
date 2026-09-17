@@ -208,6 +208,9 @@
 
     <script>
       (function () {
+        // 部署前缀：由服务端读 X-Forwarded-Prefix 注入（挂在子路径下时形如 /obs）
+        var BASE = '__VB_BASE__';
+
         var token = '';
         try {
           var u = new URL(window.location.href);
@@ -242,8 +245,8 @@
         }
 
         var query = token ? '?token=' + encodeURIComponent(token) : '';
-        document.getElementById('open-web').setAttribute('href', '/' + query);
-        document.getElementById('download-zip').setAttribute('href', '/setup/plugin.zip' + query);
+        document.getElementById('open-web').setAttribute('href', BASE + '/' + query);
+        document.getElementById('download-zip').setAttribute('href', BASE + '/setup/plugin.zip' + query);
       })();
     </script>
   </body>
