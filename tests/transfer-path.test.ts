@@ -1,7 +1,12 @@
 /** 传输落点计算——「下载后文件跑哪去了」的根因大多在这里。 */
 
 import { describe, expect, it } from 'vitest';
-import { normalizeDirPrefix, resolveDownloadTarget, resolveUploadTarget } from '../src/shared/transfer-path';
+import {
+  isUpToDate,
+  normalizeDirPrefix,
+  resolveDownloadTarget,
+  resolveUploadTarget,
+} from '../src/shared/transfer-path';
 
 describe('normalizeDirPrefix', () => {
   it('去掉首尾斜杠', () => {
@@ -77,5 +82,40 @@ describe('resolveUploadTarget', () => {
 
   it('相同路径不会拼成两遍', () => {
     expect(resolveUploadTarget('收件箱', '收件箱')).toBe('收件箱');
+  });
+});
+
+describe('isUpToDate（增量同步的判定）', () => {
+  const remote = { size: 1024, mtime: 1_700_000_000_000 };
+
+  it('本地不存在 → 需要下载', () => {
+    expect(isUpToDate(null, remote)).toBe(false);
+    expect(isUpToDate(undefined, remote)).toBe(false);
+  });
+
+  it('大小不同 → 需要下载', () => {
+    expect(isUpToDate({ size: 512, mtime: remote.mtime }, remote)).toBe(false);
+  });
+
+  it('大小相同且时间一致 → 跳过', () => {
+    expect(isUpToDate({ size: 1024, mtime: remote.mtime }, remote)).toBe(true);
+  });
+
+  it('时间在容差内 → 跳过（容忍不同文件系统的时间精度）', () => {
+    expect(isUpToDate({ size: 1024, mtime: remote.mtime - 1500 }, remote)).toBe(true);
+    expect(isUpToDate({ size: 1024, mtime: remote.mtime + 1500 }, remote)).toBe(true);
+  });
+
+  it('时间超出容差 → 需要下载', () => {
+    expect(isUpToDate({ size: 1024, mtime: remote.mtime - 5000 }, remote)).toBe(false);
+  });
+
+  it('远程时间戳缺失 → 保守重下，不误判为最新', () => {
+    expect(isUpToDate({ size: 1024, mtime: 123 }, { size: 1024, mtime: 0 })).toBe(false);
+    expect(isUpToDate({ size: 1024, mtime: 123 }, { size: 1024, mtime: Number.NaN })).toBe(false);
+  });
+
+  it('本地字段异常 → 不误判为最新', () => {
+    expect(isUpToDate({ size: Number.NaN, mtime: remote.mtime }, remote)).toBe(false);
   });
 });

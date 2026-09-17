@@ -21,6 +21,18 @@ if (typeof globalScope.window === 'undefined') {
   });
 }
 
+// 插件用 typeof require 探测 Node 模块系统（移动端 WebView 里可能没有）。
+// 测试进程是 ESM，裸 require 不存在，这里补上真正的 require，
+// 让依赖 fs 的插件文件下发接口能在单测里被真实执行。
+if (typeof globalScope.require === 'undefined') {
+  const { createRequire } = await import('node:module');
+  Object.defineProperty(globalScope, 'require', {
+    value: createRequire(import.meta.url),
+    configurable: true,
+    writable: true,
+  });
+}
+
 // Node 18 不把 Web Crypto 挂到全局（Node 19 才默认开启），
 // 且脚本文件里没有而 node -e 里有，故显式补齐。
 const existingCrypto = (globalScope.crypto as { getRandomValues?: unknown } | undefined) ?? undefined;

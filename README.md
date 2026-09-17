@@ -13,13 +13,15 @@ No cloud service, no account, no third-party server in the middle. Files travel 
 
 ## Features
 
-| | |
-|---|---|
-| **Download to phone** | Browse the remote vault and tap a file. Tapping a folder downloads it recursively, keeping the same relative structure so wiki-links and attachments keep working on mobile. |
-| **Upload to computer** | Browse the phone vault and send files back. The landing folder is configurable. |
-| **Works without the plugin** | The desktop server also serves a mobile-friendly web page, so any phone browser can transfer files with zero install. |
-| **Built-in setup page** | `/setup` walks you through installing the mobile plugin and hands out the installation bundle — no cable, no cloud drive. |
-| **LAN first, public optional** | Same-WiFi transfers go straight over your local network. For 4G/5G there is a one-command HTTPS tunnel. |
+|                                         |                                                                                                                                                                              |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **One-tap whole-vault sync**            | On the phone, tap **⬇ 一键同步整个库到手机** right under the tabs: the entire vault comes over in one go, and later taps transfer only the files that changed.               |
+| **Update the plugin from the computer** | On mobile, **⇧ 更新插件** pulls `main.js` / `manifest.json` / `styles.css` from the desktop server and replaces them in place — no file manager, no manual copying.          |
+| **Download to phone**                   | Browse the remote vault and tap a file. Tapping a folder downloads it recursively, keeping the same relative structure so wiki-links and attachments keep working on mobile. |
+| **Upload to computer**                  | Browse the phone vault and send files back. The landing folder is configurable.                                                                                              |
+| **Works without the plugin**            | The desktop server also serves a mobile-friendly web page, so any phone browser can transfer files with zero install.                                                        |
+| **Built-in setup page**                 | `/setup` walks you through installing the mobile plugin and hands out the installation bundle — no cable, no cloud drive.                                                    |
+| **LAN first, public optional**          | Same-WiFi transfers go straight over your local network. For 4G/5G there is a one-command HTTPS tunnel.                                                                      |
 
 ## Requirements
 
@@ -64,10 +66,10 @@ Step-by-step iOS instructions (中文): [docs/mobile-setup.md](docs/mobile-setup
 
 ## Network
 
-| Situation | Address | What to do |
-|---|---|---|
-| Phone and computer on the same WiFi | `http://192.168.1.44:8770` | Nothing — it just works |
-| Phone on 4G/5G | `https://xxx.trycloudflare.com` | Run `tools/tunnel.sh start` on the computer |
+| Situation                           | Address                         | What to do                                  |
+| ----------------------------------- | ------------------------------- | ------------------------------------------- |
+| Phone and computer on the same WiFi | `http://192.168.1.44:8770`      | Nothing — it just works                     |
+| Phone on 4G/5G                      | `https://xxx.trycloudflare.com` | Run `tools/tunnel.sh start` on the computer |
 
 Public access must be **HTTPS**: iOS App Transport Security rejects plain HTTP requests
 from the app, which is why the LAN address stops working outside your home network.
@@ -154,13 +156,13 @@ that `main.js` was built from this repository by its release workflow:
 gh attestation verify main.js --repo YaYII/obsidian-vault-bridge
 ```
 
-
 On older `gh` versions (below 2.49) verify through the API instead:
 
 ```bash
 D=$(sha256sum main.js | cut -d" " -f1)
 gh api "repos/YaYII/obsidian-vault-bridge/attestations/sha256:$D"
 ```
+
 The build is also reproducible: it embeds no timestamp or randomness, so rebuilding
 from the same tag yields a byte-identical `main.js`.
 

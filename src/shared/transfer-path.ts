@@ -36,3 +36,27 @@ export function resolveUploadTarget(uploadDir: string, localPath: string): strin
   if (source === base || source.indexOf(base + '/') === 0) return source;
   return base + '/' + source;
 }
+
+/**
+ * 判断本地文件是否已经是最新，用于跳过未变化的文件。
+ *
+ * 为什么需要它：全量下载 200 个文件时，若每次都整库重下，
+ * 第二次同步仍要传输全部字节——而绝大多数文件其实没动过。
+ *
+ * 采用 size + mtime 双重判定，并对 mtime 留出容差：
+ * 不同文件系统的时间精度不同（秒级/毫秒级/纳秒级），
+ * 同步工具也可能微调时间戳，容差可避免把「其实没变」的文件误判为需要重下。
+ */
+export const MTIME_TOLERANCE_MS = 2000;
+
+export function isUpToDate(
+  local: { size: number; mtime: number } | null | undefined,
+  remote: { size: number; mtime: number }
+): boolean {
+  if (!local) return false;
+  if (typeof local.size !== 'number' || typeof local.mtime !== 'number') return false;
+  if (local.size !== remote.size) return false;
+  // 远程时间戳缺失时无法判定，保守地重新下载
+  if (!Number.isFinite(remote.mtime) || remote.mtime <= 0) return false;
+  return Math.abs(local.mtime - remote.mtime) <= MTIME_TOLERANCE_MS;
+}

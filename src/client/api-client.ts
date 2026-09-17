@@ -53,6 +53,8 @@ interface CallOptions {
   body?: ArrayBuffer;
   /** 期望返回二进制而不是 JSON */
   binary?: boolean;
+  /** 期望返回纯文本而不是 JSON（插件安装文件是 JS/CSS/JSON 文本） */
+  text?: boolean;
   /** 登录校验失败时抛出 auth 错误 */
   timeoutMs?: number;
 }
@@ -116,6 +118,14 @@ export class BridgeClient {
     await this.call(ROUTES.mkdir, { method: 'POST', query: { path } });
   }
 
+  /**
+   * 取电脑上的插件安装文件（main.js / manifest.json / styles.css）。
+   * 手机端据此在线更新插件，省去手动替换三个文件。
+   */
+  async fetchPluginFile(name: string): Promise<string> {
+    return (await this.call(ROUTES.setupFile, { query: { name }, text: true })) as string;
+  }
+
   /** 统一请求封装：拼 URL、带令牌、把各类失败翻译成可读错误 */
   private async call(route: string, options: CallOptions): Promise<unknown> {
     if (!this.baseUrl) {
@@ -174,6 +184,9 @@ export class BridgeClient {
 
     if (options.binary) {
       return response.arrayBuffer;
+    }
+    if (options.text) {
+      return response.text;
     }
     if (!response.text) return {};
     try {

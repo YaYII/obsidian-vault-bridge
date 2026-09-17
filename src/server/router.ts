@@ -7,7 +7,7 @@
  */
 
 import type { Vault } from 'obsidian';
-import { BUNDLE_FILES, ROUTES } from '../shared/protocol';
+import { BUNDLE_FILES, ROUTES, isBundleFile } from '../shared/protocol';
 import { UnsafePathError, normalizeVaultPath } from '../shared/path';
 import { mimeOf } from '../shared/mime';
 import { baseName } from '../shared/path';
@@ -31,6 +31,13 @@ import { renderWebUi } from './web-ui';
 import { renderSetupPage } from './setup-page';
 import { buildZip } from './zip';
 import { nodeRequire } from './node-modules';
+
+/** 插件安装文件对应的 MIME 类型 */
+const PLUGIN_FILE_TYPES: Record<string, string> = {
+  'manifest.json': 'application/json; charset=utf-8',
+  'main.js': 'text/javascript; charset=utf-8',
+  'styles.css': 'text/css; charset=utf-8',
+};
 
 /** 路由层需要的运行上下文 */
 export interface BridgeContext {
@@ -327,6 +334,37 @@ async function route(
           'cache-control': 'no-store',
         },
         body: archive,
+      };
+    }
+
+    case ROUTES.setupFile: {
+      if (method !== 'GET') return errorResponse(405, 'method_not_allowed', '请使用 GET');
+      const name = req.query.get('name') || '';
+      // 白名单：只允许取安装包内的三个文件，杜绝把这里变成任意文件读取入口
+      if (!isBundleFile(name)) {
+        return errorResponse(400, 'bad_request', '只能读取插件自身的安装文件');
+      }
+      const pluginDir = ctx.getPluginDir();
+      if (!pluginDir) {
+        return errorResponse(500, 'unsupported', '当前环境无法读取插件目录（仅电脑端支持）');
+      }
+      const fs = nodeRequire<typeof import('fs')>('fs');
+      const nodePath = nodeRequire<typeof import('path')>('path');
+      let data: Uint8Array;
+      try {
+        data = new Uint8Array(fs.readFileSync(nodePath.join(pluginDir, name)));
+      } catch {
+        return errorResponse(404, 'not_found', '电脑上找不到这个插件文件');
+      }
+      setAction(`下发插件文件 ${name}`);
+      return {
+        status: 200,
+        headers: {
+          'content-type': PLUGIN_FILE_TYPES[name] ?? 'application/octet-stream',
+          'content-length': String(data.byteLength),
+          'cache-control': 'no-store',
+        },
+        body: data,
       };
     }
 

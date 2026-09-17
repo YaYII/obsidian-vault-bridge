@@ -11,8 +11,9 @@ import { ItemView, Notice, Platform, TFile, TFolder, WorkspaceLeaf, setIcon } fr
 import { BridgeClient, BridgeClientError, normalizeBaseUrl } from './api-client';
 import { formatBytes } from '../shared/format';
 import { parentOf } from '../shared/path';
-import { resolveDownloadTarget, resolveUploadTarget } from '../shared/transfer-path';
-import type { BridgeEntry } from '../shared/types';
+import { isUpToDate, resolveDownloadTarget, resolveUploadTarget } from '../shared/transfer-path';
+import { readRemotePluginVersion } from '../shared/plugin-update';
+import type { BridgeEntry, ListResponse } from '../shared/types';
 import {
   findProfile,
   forgetProfile,
@@ -26,6 +27,9 @@ import type VaultBridgePlugin from '../main';
 export const VIEW_TYPE_BRIDGE_PANEL = 'vault-bridge-panel';
 
 type Tab = 'download' | 'upload';
+
+/** 单次整库同步的文件数上限：手机上一次跑太久容易被当成卡死，超过就分次点 */
+const MAX_SYNC_FILES = 2000;
 
 /** 面板的全部可变状态，渲染函数只读它 */
 interface PanelState {
@@ -205,6 +209,10 @@ export class BridgePanel extends ItemView {
 
     this.renderHeader(root);
     this.renderTabs(root);
+    // 整库同步是手机上最常用的动作，直接放在页签正下方，不进二级界面
+    if (this.state.tab === 'download') {
+      this.renderSyncBar(root);
+    }
 
     const body = root.createDiv({ cls: 'vault-bridge-body' });
     if (this.state.busy) {
@@ -218,6 +226,35 @@ export class BridgePanel extends ItemView {
     }
 
     this.renderFooter(root);
+  }
+
+  /**
+   * 整库同步入口。
+   *
+   * 用户的心智模型是「点一下，把电脑上的东西全弄到手机」，
+   * 而不是「先理解点文件夹会递归下载」这层语义，所以给它一个独立的主按钮。
+   */
+  private renderSyncBar(root: HTMLElement): void {
+    const bar = root.createDiv({ cls: 'vault-bridge-syncbar' });
+
+    const button = bar.createEl('button', {
+      cls: 'mod-cta vault-bridge-sync-all',
+      text: '⬇ 一键同步整个库到手机',
+    });
+    button.title = '把电脑 vault 里的全部文件下载到手机；已存在且未变化的文件自动跳过';
+    button.disabled = !this.state.connected || this.state.busy.length > 0;
+    button.addEventListener('click', () => {
+      void this.downloadFolder({ name: '整个库', path: '', kind: 'folder', size: 0, mtime: 0 });
+    });
+
+    const hint = bar.createDiv({ cls: 'vault-bridge-sync-hint' });
+    hint.setText(
+      this.state.connected
+        ? '保存到：' +
+            (this.plugin.settings.clientDownloadDir || 'vault 根目录') +
+            '（首次全量，之后只传改动过的文件）'
+        : '先在上方填写电脑地址与令牌，点「连接」'
+    );
   }
 
   private renderHeader(root: HTMLElement): void {
@@ -531,6 +568,16 @@ export class BridgePanel extends ItemView {
       this.plugin.openSettings();
     });
 
+    // 手机端换版本很麻烦（要手动替换 3 个文件），直接给一个从电脑拉最新版的入口
+    if (Platform.isMobileApp) {
+      const updateBtn = actions.createEl('button', { text: '⇧ 更新插件' });
+      updateBtn.title = '从电脑取最新版插件文件覆盖本机，之后重启 Obsidian 生效';
+      updateBtn.disabled = !this.state.connected || this.state.busy.length > 0;
+      updateBtn.addEventListener('click', () => {
+        void this.updatePluginFromServer();
+      });
+    }
+
     const refreshBtn = actions.createEl('button', { text: '↻ 刷新' });
     refreshBtn.addEventListener('click', () => {
       void (async () => {
@@ -600,34 +647,62 @@ export class BridgePanel extends ItemView {
   private async downloadFolder(entry: BridgeEntry): Promise<void> {
     const client = this.buildClient();
     if (!client) return;
-    this.state.busy = '正在读取 ' + entry.name + ' …';
+    // 根目录（path 为空）= 整个库，文案上直接说清楚正在做什么
+    this.state.busy = entry.path ? '正在读取 ' + entry.name + ' …' : '正在统计电脑上的文件…';
     await this.render();
     try {
-      const files = await this.collectRemoteFiles(client, entry.path, 0);
+      const unreadable: string[] = [];
+      const files = await this.collectRemoteFiles(client, entry.path, 0, unreadable);
       if (files.length === 0) {
-        this.state.lastMessage = entry.name + ' 里没有文件';
+        this.state.lastMessage = entry.path ? entry.name + ' 里没有文件' : '电脑上没有可同步的文件';
         this.state.lastMessageKind = 'info';
         return;
       }
       let done = 0;
+      let skipped = 0;
+      let failed = 0;
       for (const file of files) {
-        this.state.busy = '下载 ' + (done + 1) + '/' + files.length + '：' + file.name;
-        await this.render();
-        const data = await client.download(file.path);
         const target = this.localTargetPath(file.path);
-        await this.ensureLocalFolder(target);
         const existing = this.app.vault.getAbstractFileByPath(target);
-        if (existing instanceof TFile) {
-          await this.app.vault.modifyBinary(existing, data);
-        } else if (!existing) {
-          await this.app.vault.createBinary(target, data);
+
+        // 增量：size 与 mtime 都没变就跳过，省掉整次传输。
+        // 第二次同步通常只传改动过的少数文件。
+        if (
+          existing instanceof TFile &&
+          isUpToDate({ size: existing.stat.size, mtime: existing.stat.mtime }, file)
+        ) {
+          skipped++;
+          continue;
         }
-        done++;
+
+        this.state.busy = '下载 ' + (done + skipped + failed + 1) + '/' + files.length + '：' + file.name;
+        await this.render();
+        try {
+          const data = await client.download(file.path);
+          await this.ensureLocalFolder(target);
+          if (existing instanceof TFile) {
+            await this.app.vault.modifyBinary(existing, data);
+          } else if (!existing) {
+            await this.app.vault.createBinary(target, data);
+          }
+          done++;
+        } catch {
+          // 单个文件失败不该中断整次同步，继续处理其余文件
+          failed++;
+        }
+      }
+
+      const parts = ['下载 ' + done + ' 个'];
+      if (skipped > 0) parts.push('跳过 ' + skipped + ' 个未变化');
+      if (failed > 0) parts.push('失败 ' + failed + ' 个');
+      if (unreadable.length > 0) parts.push('无法读取 ' + unreadable.length + ' 个目录');
+      if (files.length >= MAX_SYNC_FILES) {
+        parts.push('已到单次上限 ' + MAX_SYNC_FILES + ' 个，再点一次可继续');
       }
       this.state.lastMessage =
-        '已下载 ' + done + ' 个文件到 ' + (this.plugin.settings.clientDownloadDir || '根目录');
-      this.state.lastMessageKind = 'ok';
-      new Notice('已下载 ' + done + ' 个文件');
+        '同步完成：' + parts.join('，') + '（' + (this.plugin.settings.clientDownloadDir || '根目录') + '）';
+      this.state.lastMessageKind = failed > 0 ? 'err' : unreadable.length > 0 ? 'info' : 'ok';
+      new Notice('已下载 ' + done + ' 个文件' + (skipped ? '，跳过 ' + skipped + ' 个' : ''));
     } catch (error) {
       this.state.lastMessage = describeError(error);
       this.state.lastMessageKind = 'err';
@@ -638,25 +713,83 @@ export class BridgePanel extends ItemView {
     }
   }
 
-  /** 递归收集远程文件列表，带数量上限防止误点整库 */
+  /**
+   * 递归收集远程文件列表，带数量上限防止一次跑太久。
+   *
+   * 单个子目录读不到（权限、被排除、并发删除）不该让整库同步整体失败：
+   * 记进 unreadable 如实汇报，其余目录照常下载。
+   * 顶层失败（地址错、令牌失效）必须抛出去，否则会把故障伪装成「没有文件」。
+   */
   private async collectRemoteFiles(
     client: BridgeClient,
     path: string,
-    depth: number
+    depth: number,
+    unreadable: string[]
   ): Promise<BridgeEntry[]> {
     if (depth > 12) return [];
-    const data = await client.list(path);
+    let data: ListResponse;
+    if (depth === 0) {
+      data = await client.list(path);
+    } else {
+      try {
+        data = await client.list(path);
+      } catch {
+        unreadable.push(path || '/');
+        return [];
+      }
+    }
     const files: BridgeEntry[] = [];
     for (const item of data.entries) {
       if (item.kind === 'file') {
         files.push(item);
       } else {
-        const nested = await this.collectRemoteFiles(client, item.path, depth + 1);
+        const nested = await this.collectRemoteFiles(client, item.path, depth + 1, unreadable);
         for (const file of nested) files.push(file);
       }
-      if (files.length > 2000) break;
+      if (files.length >= MAX_SYNC_FILES) break;
     }
     return files;
+  }
+
+  /**
+   * 从电脑取最新版插件文件，覆盖本机插件目录。
+   *
+   * 手机上没有称手的文件管理器，替换 main.js/manifest.json/styles.css 是件苦差事；
+   * 电脑端已经在同一地址上提供这三个文件（/setup/file?name=…），直接取回来写盘即可。
+   */
+  private async updatePluginFromServer(): Promise<void> {
+    const client = this.buildClient();
+    if (!client) {
+      new Notice('请先填写电脑地址与令牌并连接');
+      return;
+    }
+    this.state.busy = '正在从电脑取插件文件…';
+    await this.render();
+    try {
+      const manifestText = await client.fetchPluginFile('manifest.json');
+      const remoteVersion = readRemotePluginVersion(manifestText);
+      if (!remoteVersion) {
+        throw new BridgeClientError('电脑返回的不是本插件的安装文件，已中止更新', 'server');
+      }
+      const mainJs = await client.fetchPluginFile('main.js');
+      const styles = await client.fetchPluginFile('styles.css');
+
+      const dir = this.app.vault.configDir + '/plugins/' + this.plugin.manifest.id;
+      await this.app.vault.adapter.write(dir + '/main.js', mainJs);
+      await this.app.vault.adapter.write(dir + '/styles.css', styles);
+      // manifest 最后写：中途失败时本机仍是可用的旧版本
+      await this.app.vault.adapter.write(dir + '/manifest.json', manifestText);
+
+      this.state.lastMessage = '插件已更新到 v' + remoteVersion + '：重启 Obsidian（或重新加载）后生效';
+      this.state.lastMessageKind = 'ok';
+      new Notice('插件已更新到 v' + remoteVersion + '，请重启 Obsidian 生效');
+    } catch (error) {
+      this.state.lastMessage = describeError(error);
+      this.state.lastMessageKind = 'err';
+    } finally {
+      this.state.busy = '';
+      await this.render();
+    }
   }
 
   private async uploadFile(entry: BridgeEntry): Promise<void> {

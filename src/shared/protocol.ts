@@ -42,10 +42,17 @@ export const ROUTES = {
   setup: '/setup',
   /** 插件自身安装包（供手机下载安装） */
   setupBundle: '/setup/plugin.zip',
+  /** 插件自身的单个安装文件（手机端据此在线更新插件） */
+  setupFile: '/setup/file',
 } as const;
 
 /** 安装包里需要打包的插件文件，顺序即解压后的呈现顺序 */
 export const BUNDLE_FILES = ['manifest.json', 'main.js', 'styles.css'] as const;
+
+/** 文件名白名单校验：对外只暴露安装包内的文件，避免这里变成任意文件读取入口 */
+export function isBundleFile(name: string): boolean {
+  return (BUNDLE_FILES as readonly string[]).includes(name);
+}
 
 /**
  * 客户端列目录时默认过滤掉的噪音目录。

@@ -206,6 +206,34 @@ async function main() {
   const blocked = await fetch(base + '/api/list?path=' + encodeURIComponent('.obsidian'), { headers: auth });
   check('受保护的 .obsidian 被拦下（400）', blocked.status === 400, '实际：' + blocked.status);
 
+  // ── 插件文件下发：手机端靠它在线更新插件 ──
+  const pluginFile = await fetch(base + '/setup/file?name=main.js', { headers: auth });
+  const pluginFileText = await pluginFile.text();
+  check('下发插件文件返回 200', pluginFile.status === 200, '实际：' + pluginFile.status);
+  const diskBundle = require_('node:fs').readFileSync(MAIN_PATH, 'utf8');
+  check(
+    '下发内容与磁盘上的打包产物逐字节一致',
+    pluginFileText === diskBundle,
+    '长度：' + pluginFileText.length + ' vs ' + diskBundle.length
+  );
+  check(
+    '文件类型标记为 JavaScript',
+    (pluginFile.headers.get('content-type') || '').indexOf('javascript') !== -1,
+    pluginFile.headers.get('content-type') || '(空)'
+  );
+
+  const pluginFileEscape = await fetch(base + '/setup/file?name=' + encodeURIComponent('../package.json'), {
+    headers: auth,
+  });
+  check('白名单外的文件名被拦下（400）', pluginFileEscape.status === 400, '实际：' + pluginFileEscape.status);
+
+  const pluginFileNoAuth = await fetch(base + '/setup/file?name=main.js');
+  check(
+    '不带令牌取插件文件被拒绝（401）',
+    pluginFileNoAuth.status === 401,
+    '实际：' + pluginFileNoAuth.status
+  );
+
   const webUi = await fetch(base + '/');
   const html = await webUi.text();
   check('根路径返回手机端网页', webUi.status === 200 && html.toLowerCase().indexOf('<!doctype html>') !== -1);
@@ -364,6 +392,9 @@ async function main() {
       panelText.indexOf('下载到手机') !== -1 && panelText.indexOf('上传到电脑') !== -1
     );
     check('面板显示电脑地址输入框', panelText.indexOf('电脑地址') !== -1);
+    // 这行断言是给用户看的：产物里必须真的有一键整库同步入口
+    check('面板带一键整库同步按钮', panelText.indexOf('一键同步整个库到手机') !== -1);
+    check('同步按钮旁写明落地目录', panelText.indexOf('保存到') !== -1);
   } catch (error) {
     check('面板渲染不抛异常', false, error.message);
   }
@@ -397,6 +428,14 @@ async function main() {
     '实际：' + (mobilePlugin.server === null ? 'null' : 'non-null')
   );
   check('手机端同样注册了传输面板', typeof mobilePlugin.views['vault-bridge-panel'] === 'function');
+
+  // 手机端面板：一键同步 + 在线更新插件，两个入口都必须出现
+  const mobileLeaf = { app: makeApp(mobileVault), setViewState: async () => undefined };
+  const mobilePanel = mobilePlugin.views['vault-bridge-panel'](mobileLeaf);
+  await mobilePanel.onOpen();
+  const mobilePanelText = mobilePanel.contentEl.collectText();
+  check('手机端面板带一键整库同步按钮', mobilePanelText.indexOf('一键同步整个库到手机') !== -1);
+  check('手机端面板带在线更新插件入口', mobilePanelText.indexOf('更新插件') !== -1);
 
   let mobileLeaked = false;
   try {
