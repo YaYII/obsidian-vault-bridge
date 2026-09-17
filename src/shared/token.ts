@@ -10,6 +10,22 @@
 const TOKEN_ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789';
 
 /**
+ * 取 Web Crypto 实现。
+ *
+ * Obsidian 桌面端（Electron）与移动端（WebView）都会提供全局 crypto；
+ * 但某些运行环境（例如未开实验开关的 Node 18）并没有把它挂到全局上，
+ * 直接写 crypto.getRandomValues 只会抛出难懂的 "crypto is not defined"。
+ * 这里显式探测，把问题说清楚。
+ */
+function requireWebCrypto(): Crypto {
+  const impl = typeof globalThis === 'undefined' ? undefined : (globalThis as { crypto?: Crypto }).crypto;
+  if (!impl || typeof impl.getRandomValues !== 'function') {
+    throw new Error('当前运行环境不提供 Web Crypto（crypto.getRandomValues），无法安全生成访问令牌');
+  }
+  return impl;
+}
+
+/**
  * 生成一个高强度随机令牌。
  * 使用 crypto.getRandomValues（CSPRNG），拒绝采样以消除取模偏差。
  * @param length 令牌长度，默认 32 字符（约 160 bit 熵）
@@ -19,9 +35,10 @@ export function generateToken(length = 32): string {
   const maxValid = Math.floor(256 / alphabetSize) * alphabetSize;
   const out: string[] = [];
   const buffer = new Uint8Array(length * 2);
+  const webCrypto = requireWebCrypto();
 
   while (out.length < length) {
-    crypto.getRandomValues(buffer);
+    webCrypto.getRandomValues(buffer);
     for (let i = 0; i < buffer.length && out.length < length; i++) {
       const byte = buffer[i];
       if (byte < maxValid) {
