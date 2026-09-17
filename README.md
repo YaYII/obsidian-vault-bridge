@@ -154,6 +154,13 @@ that `main.js` was built from this repository by its release workflow:
 gh attestation verify main.js --repo YaYII/obsidian-vault-bridge
 ```
 
+
+On older `gh` versions (below 2.49) verify through the API instead:
+
+```bash
+D=$(sha256sum main.js | cut -d" " -f1)
+gh api "repos/YaYII/obsidian-vault-bridge/attestations/sha256:$D"
+```
 The build is also reproducible: it embeds no timestamp or randomness, so rebuilding
 from the same tag yields a byte-identical `main.js`.
 
