@@ -331,17 +331,28 @@ async function main() {
     const hostEl = tab.containerEl.createDiv({ cls: 'verify-setting-row' });
     // 控件替身：每个链式方法返回控件自身（真实 Obsidian 的 component 就是这么设计的），
     // 行的 addXxx 则返回行对象，这样 text.setValue(x).setPlaceholder(y) 之类的链式调用才成立。
+    // 记录按钮文案与点击回调：产物里到底有没有这个按钮、点了会怎样，都要能被验证
+    const buttons = [];
     const makeControl = () => {
       const control = {
         inputEl: hostEl.createEl('input'),
+        label: '',
+        handlers: [],
         setValue: () => control,
         setPlaceholder: () => control,
-        setButtonText: () => control,
+        setButtonText: (text) => {
+          control.label = String(text);
+          hostEl.createDiv({ cls: 'verify-button', text: control.label });
+          return control;
+        },
         setTooltip: () => control,
         setIcon: () => control,
         setDisabled: () => control,
         onChange: () => control,
-        onClick: () => control,
+        onClick: (handler) => {
+          control.handlers.push(handler);
+          return control;
+        },
       };
       return control;
     };
@@ -360,7 +371,9 @@ async function main() {
         return probe;
       },
       addButton: (cb) => {
-        cb(makeControl());
+        const control = makeControl();
+        cb(control);
+        buttons.push(control);
         return probe;
       },
       addExtraButton: (cb) => {
@@ -378,6 +391,28 @@ async function main() {
     }
     check('全部 render 回调执行不抛异常', true, '执行了 ' + renderedRows + ' 个');
     check('渲染出的 DOM 含服务状态', hostEl.collectText().indexOf('服务运行中') !== -1);
+
+    // 用户提出的问题：填完地址后，设置页里必须有人能触发动作
+    const settingsText = hostEl.collectText();
+    check(
+      '设置页有「测试连接（检查 200）」按钮',
+      settingsText.indexOf('测试连接（检查 200）') !== -1,
+      '按钮：' + buttons.map((b) => b.label).join(' | ')
+    );
+    check('设置页有「一键同步整个库」按钮', settingsText.indexOf('一键同步整个库') !== -1);
+    check('设置页有「打开传输面板」入口', settingsText.indexOf('打开传输面板') !== -1);
+
+    // 真的点一下「测试连接」：要把结果写回状态行，而不是静默失败
+    const testButton = buttons.find((b) => b.label.indexOf('测试连接') === 0);
+    check('「测试连接」绑定了点击处理', !!testButton && testButton.handlers.length > 0);
+    if (testButton && testButton.handlers.length > 0) {
+      testButton.handlers[0]();
+      check(
+        '点击后把检查结果写回状态行',
+        hostEl.collectText().indexOf('还没有填写') !== -1,
+        '状态行：' + hostEl.collectText().slice(-60)
+      );
+    }
   } catch (error) {
     check('设置页定义与渲染不抛异常', false, error.message);
   }

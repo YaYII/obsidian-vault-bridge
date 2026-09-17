@@ -6,6 +6,8 @@ import { generateToken } from './shared/token';
 import { formatTime } from './shared/format';
 import { listListenAddresses } from './server/net';
 import { MAX_PROFILES, inferProfileLabel, type ServerProfile } from './shared/server-profile';
+import { describeSyncSummary, syncFromComputer } from './client/library-sync';
+import { describeError } from './client/error-text';
 import type VaultBridgePlugin from './main';
 
 /** 持久化到 data.json 的设置 */
@@ -272,6 +274,12 @@ export class VaultBridgeSettingTab extends PluginSettingTab {
         heading: '手机端',
         items: [
           {
+            // 填完地址后必须有个东西去触发动作，否则这一页只有输入框
+            name: '连接检查与一键同步',
+            desc: '先点「测试连接」确认电脑在线（期望 200），再点「一键同步整个库」把电脑上的文件搬到手机',
+            render: (setting) => this.renderClientActions(setting),
+          },
+          {
             name: '电脑地址',
             desc: '手机连接电脑用的地址，例如 http://192.168.1.44:8770；外出时填公网 https 地址',
             render: (setting) => {
@@ -344,6 +352,96 @@ export class VaultBridgeSettingTab extends PluginSettingTab {
         ],
       },
     ];
+  }
+
+  /**
+   * 手机端动作入口：检查连接 + 一键同步 + 打开面板。
+   *
+   * 放在设置页的原因：手机用户常常从「设置 → Vault Bridge」进来，
+   * 如果这一页只有输入框，填完地址之后就没有任何东西能触发动作。
+   */
+  private renderClientActions(setting: Setting): void {
+    const status = setting.settingEl.createDiv({ cls: 'vault-bridge-status' });
+    const result = status.createDiv({
+      cls: 'vault-bridge-hint',
+      text: '尚未检查。「测试连接」会请求一次 /api/health，返回 200 说明地址与网络都通。',
+    });
+
+    setting.addButton((button) =>
+      button.setButtonText('测试连接（检查 200）').onClick(() => {
+        void this.checkClientConnection(result);
+      })
+    );
+    setting.addButton((button) =>
+      button.setButtonText('⬇ 一键同步整个库').onClick(() => {
+        void this.runWholeLibrarySync(result);
+      })
+    );
+    setting.addButton((button) =>
+      button.setButtonText('打开传输面板').onClick(() => {
+        void this.plugin.openPanel();
+      })
+    );
+  }
+
+  /** 请求一次健康检查与令牌校验，把「是不是 200」明确写出来 */
+  private async checkClientConnection(result: HTMLElement): Promise<void> {
+    const client = this.plugin.createClient();
+    if (!client) {
+      result.setText('❌ 还没有填写「电脑地址」，或地址与令牌不完整');
+      return;
+    }
+    result.setText('⏳ 正在请求 ' + client.endpoint + '/api/health …');
+    const started = Date.now();
+    try {
+      const health = await client.health();
+      const elapsed = Date.now() - started;
+      let tokenText = '令牌未校验';
+      try {
+        await client.verify();
+        tokenText = '令牌有效';
+      } catch (error) {
+        tokenText = '令牌无效（' + describeError(error) + '）';
+      }
+      result.setText(
+        '✅ 电脑在线：HTTP 200 · ' +
+          health.app +
+          ' v' +
+          health.version +
+          ' · ' +
+          elapsed +
+          ' ms · ' +
+          tokenText
+      );
+      new Notice('连接正常（HTTP 200）');
+    } catch (error) {
+      result.setText('❌ 连接失败：' + describeError(error));
+    }
+  }
+
+  /** 在设置页直接触发整库同步，与传输面板走同一段逻辑 */
+  private async runWholeLibrarySync(result: HTMLElement): Promise<void> {
+    const client = this.plugin.createClient();
+    if (!client) {
+      result.setText('❌ 先填写「电脑地址」与令牌');
+      return;
+    }
+    const downloadDir = this.plugin.settings.clientDownloadDir;
+    result.setText('⏳ 正在统计电脑上的文件…');
+    try {
+      const summary = await syncFromComputer({
+        vault: this.app.vault,
+        client,
+        downloadDir,
+        onProgress: (progress) => {
+          result.setText('⏳ ' + progress.done + '/' + progress.total + '：' + progress.path);
+        },
+      });
+      result.setText((summary.failed > 0 ? '⚠️ ' : '✅ ') + describeSyncSummary(summary, downloadDir));
+      new Notice('已同步 ' + summary.downloaded + ' 个文件到手机');
+    } catch (error) {
+      result.setText('❌ 同步失败：' + describeError(error));
+    }
   }
 
   /** 把 IPv6 映射地址还原成易读的 IPv4 已在服务端处理，这里只负责展示 */

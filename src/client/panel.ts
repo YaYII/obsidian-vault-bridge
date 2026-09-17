@@ -11,11 +11,12 @@ import { ItemView, Notice, Platform, TFile, TFolder, WorkspaceLeaf, setIcon } fr
 import { BridgeClient, BridgeClientError, normalizeBaseUrl } from './api-client';
 import { formatBytes } from '../shared/format';
 import { parentOf } from '../shared/path';
-import { isUpToDate, resolveDownloadTarget, resolveUploadTarget } from '../shared/transfer-path';
+import { resolveDownloadTarget, resolveUploadTarget } from '../shared/transfer-path';
 import { readRemotePluginVersion } from '../shared/plugin-update';
-import type { BridgeEntry, ListResponse } from '../shared/types';
+import type { BridgeEntry } from '../shared/types';
+import { MAX_SYNC_FILES, collectRemoteFiles, describeSyncSummary, syncFilesToVault } from './library-sync';
+import { describeError } from './error-text';
 import {
-  findProfile,
   forgetProfile,
   formatRelativeTime,
   maskProfileToken,
@@ -27,9 +28,6 @@ import type VaultBridgePlugin from '../main';
 export const VIEW_TYPE_BRIDGE_PANEL = 'vault-bridge-panel';
 
 type Tab = 'download' | 'upload';
-
-/** 单次整库同步的文件数上限：手机上一次跑太久容易被当成卡死，超过就分次点 */
-const MAX_SYNC_FILES = 2000;
 
 /** 面板的全部可变状态，渲染函数只读它 */
 interface PanelState {
@@ -99,16 +97,11 @@ export class BridgePanel extends ItemView {
    * 都没有时回退到本机令牌——旧版本就是这么连的（vault 连同 data.json 一起同步的场景）。
    */
   private currentConnection(): { url: string; token: string } {
-    const url = this.plugin.settings.clientServerUrl;
-    const profile = findProfile(this.plugin.settings.serverProfiles, url);
-    const token = this.state.serverToken || (profile ? profile.token : '') || this.plugin.settings.token;
-    return { url, token };
+    return this.plugin.resolveConnection(this.state.serverToken);
   }
 
   private buildClient(): BridgeClient | null {
-    const { url, token } = this.currentConnection();
-    const client = new BridgeClient(url, token);
-    return client.configured ? client : null;
+    return this.plugin.createClient(this.state.serverToken);
   }
 
   /** 首次进入或切换设置后尝试连接一次 */
@@ -652,57 +645,34 @@ export class BridgePanel extends ItemView {
     await this.render();
     try {
       const unreadable: string[] = [];
-      const files = await this.collectRemoteFiles(client, entry.path, 0, unreadable);
+      // 收集与落地都走 library-sync：设置页的「一键同步」用的是同一段逻辑
+      const files = await collectRemoteFiles(client, entry.path, 0, unreadable);
       if (files.length === 0) {
         this.state.lastMessage = entry.path ? entry.name + ' 里没有文件' : '电脑上没有可同步的文件';
         this.state.lastMessageKind = 'info';
         return;
       }
-      let done = 0;
-      let skipped = 0;
-      let failed = 0;
-      for (const file of files) {
-        const target = this.localTargetPath(file.path);
-        const existing = this.app.vault.getAbstractFileByPath(target);
+      const summary = await syncFilesToVault({
+        vault: this.app.vault,
+        client,
+        files,
+        downloadDir: this.plugin.settings.clientDownloadDir,
+        unreadable: unreadable.length,
+        capped: files.length >= MAX_SYNC_FILES,
+        onProgress: async (progress) => {
+          this.state.busy = '下载 ' + progress.done + '/' + progress.total + '：' + progress.path;
+          await this.render();
+        },
+      });
 
-        // 增量：size 与 mtime 都没变就跳过，省掉整次传输。
-        // 第二次同步通常只传改动过的少数文件。
-        if (
-          existing instanceof TFile &&
-          isUpToDate({ size: existing.stat.size, mtime: existing.stat.mtime }, file)
-        ) {
-          skipped++;
-          continue;
-        }
-
-        this.state.busy = '下载 ' + (done + skipped + failed + 1) + '/' + files.length + '：' + file.name;
-        await this.render();
-        try {
-          const data = await client.download(file.path);
-          await this.ensureLocalFolder(target);
-          if (existing instanceof TFile) {
-            await this.app.vault.modifyBinary(existing, data);
-          } else if (!existing) {
-            await this.app.vault.createBinary(target, data);
-          }
-          done++;
-        } catch {
-          // 单个文件失败不该中断整次同步，继续处理其余文件
-          failed++;
-        }
-      }
-
-      const parts = ['下载 ' + done + ' 个'];
-      if (skipped > 0) parts.push('跳过 ' + skipped + ' 个未变化');
-      if (failed > 0) parts.push('失败 ' + failed + ' 个');
-      if (unreadable.length > 0) parts.push('无法读取 ' + unreadable.length + ' 个目录');
-      if (files.length >= MAX_SYNC_FILES) {
-        parts.push('已到单次上限 ' + MAX_SYNC_FILES + ' 个，再点一次可继续');
-      }
-      this.state.lastMessage =
-        '同步完成：' + parts.join('，') + '（' + (this.plugin.settings.clientDownloadDir || '根目录') + '）';
-      this.state.lastMessageKind = failed > 0 ? 'err' : unreadable.length > 0 ? 'info' : 'ok';
-      new Notice('已下载 ' + done + ' 个文件' + (skipped ? '，跳过 ' + skipped + ' 个' : ''));
+      this.state.lastMessage = describeSyncSummary(summary, this.plugin.settings.clientDownloadDir);
+      this.state.lastMessageKind = summary.failed > 0 ? 'err' : summary.unreadable > 0 ? 'info' : 'ok';
+      new Notice(
+        '已下载 ' +
+          summary.downloaded +
+          ' 个文件' +
+          (summary.skipped ? '，跳过 ' + summary.skipped + ' 个' : '')
+      );
     } catch (error) {
       this.state.lastMessage = describeError(error);
       this.state.lastMessageKind = 'err';
@@ -711,44 +681,6 @@ export class BridgePanel extends ItemView {
       await this.refreshLocal();
       await this.render();
     }
-  }
-
-  /**
-   * 递归收集远程文件列表，带数量上限防止一次跑太久。
-   *
-   * 单个子目录读不到（权限、被排除、并发删除）不该让整库同步整体失败：
-   * 记进 unreadable 如实汇报，其余目录照常下载。
-   * 顶层失败（地址错、令牌失效）必须抛出去，否则会把故障伪装成「没有文件」。
-   */
-  private async collectRemoteFiles(
-    client: BridgeClient,
-    path: string,
-    depth: number,
-    unreadable: string[]
-  ): Promise<BridgeEntry[]> {
-    if (depth > 12) return [];
-    let data: ListResponse;
-    if (depth === 0) {
-      data = await client.list(path);
-    } else {
-      try {
-        data = await client.list(path);
-      } catch {
-        unreadable.push(path || '/');
-        return [];
-      }
-    }
-    const files: BridgeEntry[] = [];
-    for (const item of data.entries) {
-      if (item.kind === 'file') {
-        files.push(item);
-      } else {
-        const nested = await this.collectRemoteFiles(client, item.path, depth + 1, unreadable);
-        for (const file of nested) files.push(file);
-      }
-      if (files.length >= MAX_SYNC_FILES) break;
-    }
-    return files;
   }
 
   /**
@@ -874,11 +806,4 @@ export class BridgePanel extends ItemView {
     }
     return files;
   }
-}
-
-/** 把各类异常翻译成用户能看懂的一句话 */
-function describeError(error: unknown): string {
-  if (error instanceof BridgeClientError) return error.message;
-  if (error instanceof Error) return error.message;
-  return String(error);
 }

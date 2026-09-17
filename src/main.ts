@@ -18,6 +18,8 @@ import {
   parseExcludeDirs,
   type VaultBridgeSettings,
 } from './settings';
+import { BridgeClient } from './client/api-client';
+import { findProfile } from './shared/server-profile';
 import type { AccessLogEntry } from './shared/types';
 
 /** 内存中最多保留的访问日志条数 */
@@ -170,7 +172,26 @@ export default class VaultBridgePlugin extends Plugin {
     }
   }
 
-  // ───────────────────────── 界面入口 ─────────────────────────
+  // ───────────────────────── 连接与界面入口 ─────────────────────────
+
+  /**
+   * 解析当前连接信息。
+   *
+   * 令牌优先级：调用方显式给出（面板里刚输入的） > 该地址的历史记录 > 本机令牌。
+   * 面板与设置页共用这一处，避免两边的回退规则悄悄走偏。
+   */
+  resolveConnection(overrideToken = ''): { url: string; token: string } {
+    const url = this.settings.clientServerUrl;
+    const profile = findProfile(this.settings.serverProfiles, url);
+    return { url, token: overrideToken || (profile ? profile.token : '') || this.settings.token };
+  }
+
+  /** 构造访问电脑的客户端；地址或令牌缺失时返回 null */
+  createClient(overrideToken = ''): BridgeClient | null {
+    const { url, token } = this.resolveConnection(overrideToken);
+    const client = new BridgeClient(url, token);
+    return client.configured ? client : null;
+  }
 
   /** 打开（或聚焦已有的）传输面板 */
   async openPanel(): Promise<void> {
