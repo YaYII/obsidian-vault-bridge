@@ -395,10 +395,11 @@ async function main() {
     // 用户提出的问题：填完地址后，设置页里必须有人能触发动作
     const settingsText = hostEl.collectText();
     check(
-      '设置页有「测试连接（检查 200）」按钮',
-      settingsText.indexOf('测试连接（检查 200）') !== -1,
+      '设置页有「测试地址（检查 200）」按钮',
+      settingsText.indexOf('测试地址（检查 200）') !== -1,
       '按钮：' + buttons.map((b) => b.label).join(' | ')
     );
+    check('设置页有「检查令牌」按钮（地址与令牌分开测）', settingsText.indexOf('检查令牌') !== -1);
     check('设置页有「一键同步整个库」按钮', settingsText.indexOf('一键同步整个库') !== -1);
     check('设置页有「打开传输面板」入口', settingsText.indexOf('打开传输面板') !== -1);
 
@@ -418,8 +419,8 @@ async function main() {
     );
 
     // 真的点一下「测试连接」：要把结果写回状态行，而不是静默失败
-    const testButton = buttons.find((b) => b.label.indexOf('测试连接') === 0);
-    check('「测试连接」绑定了点击处理', !!testButton && testButton.handlers.length > 0);
+    const testButton = buttons.find((b) => b.label.indexOf('测试地址') === 0);
+    check('「测试地址」绑定了点击处理', !!testButton && testButton.handlers.length > 0);
     if (testButton && testButton.handlers.length > 0) {
       testButton.handlers[0]();
       check(
@@ -442,6 +443,8 @@ async function main() {
       panelText.indexOf('下载到手机') !== -1 && panelText.indexOf('上传到电脑') !== -1
     );
     check('面板显示电脑地址输入框', panelText.indexOf('电脑地址') !== -1);
+    check('面板地址行带「测试地址」按钮（只测地址，不需要令牌）', panelText.indexOf('测试地址') !== -1);
+    check('面板令牌行带「连接」按钮（组装带令牌的请求）', panelText.indexOf('连接') !== -1);
     // 这行断言是给用户看的：产物里必须真的有一键整库同步入口
     check('面板带一键整库同步按钮', panelText.indexOf('一键同步整个库到手机') !== -1);
     check('同步按钮旁写明落地目录', panelText.indexOf('保存到') !== -1);

@@ -250,6 +250,43 @@ export class BridgePanel extends ItemView {
     );
   }
 
+  /**
+   * 只测地址：请求一次 /api/health（服务端不校验令牌）。
+   *
+   * 与「连接」分开的价值：地址不通和令牌不对是两类问题，
+   * 合在一个按钮里只会得到一句「连不上」，排错要来回猜。
+   */
+  private async testAddress(): Promise<void> {
+    const url = normalizeBaseUrl(this.plugin.settings.clientServerUrl);
+    if (!url) {
+      new Notice('请先填写电脑地址');
+      return;
+    }
+    const client = new BridgeClient(url, '');
+    this.state.busy = '正在测试地址 ' + url + ' …';
+    await this.render();
+    const started = Date.now();
+    try {
+      const health = await client.health();
+      this.state.lastMessage =
+        '✅ 地址可达：HTTP 200 · ' +
+        health.app +
+        ' v' +
+        health.version +
+        ' · ' +
+        (Date.now() - started) +
+        ' ms（此步不需要令牌）';
+      this.state.lastMessageKind = 'ok';
+      new Notice('地址可达（HTTP 200）');
+    } catch (error) {
+      this.state.lastMessage = '❌ 地址不通：' + describeError(error);
+      this.state.lastMessageKind = 'err';
+    } finally {
+      this.state.busy = '';
+      await this.render();
+    }
+  }
+
   private renderHeader(root: HTMLElement): void {
     const header = root.createDiv({ cls: 'vault-bridge-header' });
     const title = header.createDiv({ cls: 'vault-bridge-title' });
@@ -281,6 +318,13 @@ export class BridgePanel extends ItemView {
       })();
     });
 
+    // 地址与令牌分开测：先确认「地址通」，再确认「令牌对」，排错时一眼看出卡在哪一步
+    const testBtn = row.createEl('button', { text: '测试地址', cls: 'vault-bridge-test-btn' });
+    testBtn.title = '只请求一次 /api/health，确认地址通不通（不需要令牌）';
+    testBtn.addEventListener('click', () => {
+      void this.testAddress();
+    });
+
     const historyBtn = row.createEl('button', {
       text: this.state.showHistory ? '收起' : '历史',
       cls: 'vault-bridge-history-toggle',
@@ -305,7 +349,9 @@ export class BridgePanel extends ItemView {
       },
     });
     tokenInput.addEventListener('change', () => {
-      this.state.serverToken = tokenInput.value.trim();
+      // 也允许把整条带 token 的链接粘进来，自动只取令牌那一段
+      const pastedToken = extractTokenFromUrl(tokenInput.value);
+      this.state.serverToken = pastedToken || tokenInput.value.trim();
     });
 
     const connectBtn = tokenRow.createEl('button', {

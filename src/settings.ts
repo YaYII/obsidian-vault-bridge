@@ -11,7 +11,7 @@ import {
   rememberProfile,
   type ServerProfile,
 } from './shared/server-profile';
-import { extractTokenFromUrl, normalizeBaseUrl } from './client/api-client';
+import { BridgeClient, extractTokenFromUrl, normalizeBaseUrl } from './client/api-client';
 import { describeSyncSummary, syncFromComputer } from './client/library-sync';
 import { describeError } from './client/error-text';
 import type VaultBridgePlugin from './main';
@@ -379,11 +379,19 @@ export class VaultBridgeSettingTab extends PluginSettingTab {
     // 设置行本身是 flex：说明块若不独占一整行，就会被挤在按钮右侧逐字竖排（手机端尤其明显）
     setting.settingEl.addClass('vault-bridge-actions-row');
     const status = setting.settingEl.createDiv({ cls: 'vault-bridge-actions-status' });
-    status.setText('尚未检查。「测试连接」会请求一次 /api/health，返回 200 说明地址与网络都通。');
+    status.setText(
+      '两步走：先「测试地址（检查 200）」确认地址通（不需要令牌），再「检查令牌」确认令牌对；' +
+        '两样都绿了，点「⬇ 一键同步整个库」才会真正下载。'
+    );
 
     setting.addButton((button) =>
-      button.setButtonText('测试连接（检查 200）').onClick(() => {
-        void this.checkClientConnection(status);
+      button.setButtonText('测试地址（检查 200）').onClick(() => {
+        void this.checkAddress(status);
+      })
+    );
+    setting.addButton((button) =>
+      button.setButtonText('检查令牌').onClick(() => {
+        void this.checkToken(status);
       })
     );
     setting.addButton((button) =>
@@ -398,38 +406,53 @@ export class VaultBridgeSettingTab extends PluginSettingTab {
     );
   }
 
-  /** 请求一次健康检查与令牌校验，把「是不是 200」明确写出来 */
-  private async checkClientConnection(result: HTMLElement): Promise<void> {
-    const client = this.plugin.createClient();
-    if (!client) {
-      result.setText('❌ 还没有填写「电脑地址」，或地址与令牌不完整');
+  /**
+   * 只测地址：请求 /api/health，不需要令牌。
+   *
+   * 与「检查令牌」分开的价值：地址不通和令牌不对是两类问题，
+   * 合成一次请求只会得到一句「连不上」，用户与日志都定位不到卡在哪一步。
+   */
+  private async checkAddress(result: HTMLElement): Promise<void> {
+    const url = normalizeBaseUrl(this.plugin.settings.clientServerUrl);
+    if (!url) {
+      result.setText('❌ 还没有填写「电脑地址」');
       return;
     }
-    result.setText('⏳ 正在请求 ' + client.endpoint + '/api/health …');
+    // 健康检查在服务端不校验令牌，这里给空令牌也能请求，正好证明「地址本身是通的」
+    const client = new BridgeClient(url, '');
+    result.setText('⏳ 正在请求 ' + url + '/api/health …');
     const started = Date.now();
     try {
       const health = await client.health();
-      const elapsed = Date.now() - started;
-      let tokenText = '令牌未校验';
-      try {
-        await client.verify();
-        tokenText = '令牌有效';
-      } catch (error) {
-        tokenText = '令牌无效（' + describeError(error) + '）';
-      }
       result.setText(
-        '✅ 电脑在线：HTTP 200 · ' +
+        '✅ 地址可达：HTTP 200 · ' +
           health.app +
           ' v' +
           health.version +
           ' · ' +
-          elapsed +
-          ' ms · ' +
-          tokenText
+          (Date.now() - started) +
+          ' ms（此步不需要令牌）'
       );
-      new Notice('连接正常（HTTP 200）');
+      new Notice('地址可达（HTTP 200）');
     } catch (error) {
-      result.setText('❌ 连接失败：' + describeError(error));
+      result.setText('❌ 地址不通：' + describeError(error));
+    }
+  }
+
+  /** 只测令牌：请求 /api/verify，确认 Authorization 能通过——下载同步靠的就是这个 */
+  private async checkToken(result: HTMLElement): Promise<void> {
+    const client = this.plugin.createClient();
+    if (!client) {
+      result.setText('❌ 地址或令牌还没填完整（令牌从电脑端设置页复制，或在传输面板里填写）');
+      return;
+    }
+    result.setText('⏳ 正在校验令牌 …');
+    try {
+      await client.verify();
+      result.setText('✅ 令牌有效，可以开始下载同步：' + client.endpoint);
+      new Notice('令牌有效');
+    } catch (error) {
+      result.setText('❌ 令牌无效：' + describeError(error));
     }
   }
 
