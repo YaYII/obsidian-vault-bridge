@@ -20,6 +20,17 @@ export class BridgeClientError extends Error {
   }
 }
 
+/**
+ * 识别反向代理返回的「路径前缀不认识」响应。
+ *
+ * 本机网关按路径前缀分发（例如公网入口是 https://域名/obs），
+ * 若地址漏掉 /obs，请求会落到网关根路径并返回这类 404。
+ * 把它翻译成可操作的提示，而不是让用户对着 "HTTP 404" 猜。
+ */
+function looksLikeUnknownProject(text: string): boolean {
+  return /unknown project/i.test(text);
+}
+
 /** 服务端错误负载的类型守卫，避免把 JSON.parse 的结果当作 any 使用 */
 function isErrorPayload(value: unknown): value is { message: string } {
   if (typeof value !== 'object' || value === null) return false;
@@ -150,6 +161,13 @@ export class BridgeClient {
         if (isErrorPayload(parsed)) detail = parsed.message;
       } catch {
         /* 响应不是 JSON，保留状态码 */
+      }
+      if (response.status === 404 && looksLikeUnknownProject(response.text)) {
+        throw new BridgeClientError(
+          '地址缺少路径前缀。本机公网入口形如 https://域名/<前缀>（例如 …/obs），' +
+            '请确认「电脑地址」末尾带上这一段；局域网地址则形如 http://192.168.x.x:8770',
+          'http'
+        );
       }
       throw new BridgeClientError(detail, 'http');
     }

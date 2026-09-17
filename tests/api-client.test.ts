@@ -194,3 +194,19 @@ describe('列表与建目录', () => {
     expect(String(captured[0].url)).toContain(encodeURIComponent('新目录'));
   });
 });
+
+describe('地址漏掉路径前缀时的提示', () => {
+  it('网关返回 unknown project 的 404 → 提示缺前缀而不是干巴巴的 404', async () => {
+    requestUrlStub.impl = async () => respond({ status: 404, text: 'unknown project. try /cerebrate/' });
+    const error = await new BridgeClient('https://example.com', TOKEN).verify().catch((e) => e);
+    expect(error).toBeInstanceOf(BridgeClientError);
+    expect((error as BridgeClientError).message).toContain('路径前缀');
+  });
+
+  it('普通 404（服务端自己的 not_found）仍按原样报', async () => {
+    requestUrlStub.impl = async () =>
+      respond({ status: 404, text: JSON.stringify({ error: 'not_found', message: '文件不存在：a.md' }) });
+    const error = await new BridgeClient('http://a.b:1', TOKEN).list('a.md').catch((e) => e);
+    expect((error as BridgeClientError).message).toBe('文件不存在：a.md');
+  });
+});
